@@ -225,7 +225,7 @@ def build_pathways(feed):
         Capex=f["power_capex_mw"] / fuel_per_mw,  # [C] CERC capital cost norm
         Opex=OM_POWER_MW / fuel_per_mw,           # [C] CERC O&M norm
         Avoided=net * GRID_EF,                    # [C] CEA grid factor
-        ProcEmis=10.0,                            # [A] handling and transport
+        ProcEmis=10.0,                            # [A] handling
         Basis="Net kWh = calorific value / heat rate 4000 kcal/kWh x (1 - 10 % auxiliary). "
               "Capex and O&M from CERC norms. Tariff = Punjab regulator FY2025-26. Avoided CO2 = CEA grid factor."))
 
@@ -260,10 +260,6 @@ def build_pathways(feed):
         Basis="Yield and capex from the IOCL Panipat 2G plant (over ₹900 crore, 2.1 lakh t straw -> 3 crore L). "
               "Price = weighted average ex-mill ethanol price ESY 2025-26. Enzyme and chemical costs not included."))
     out = pd.DataFrame(rows)
-    mass_t = {"Pelletization": lambda y: y, "Combustion for power": lambda y: 0.0,   # power goes to the grid
-              "Anaerobic digestion (CBG)": lambda y: y / 1000, "Slow pyrolysis (biochar)": lambda y: y,
-              "Cellulosic ethanol (2G)": lambda y: y * 0.789 / 1000}
-    out["ProdMass"] = [mass_t[p](y) for p, y in zip(out["Pathway"], out["Yield"])]   # tonnes of product per t residue
     if "Coprod" not in out:
         out["Coprod"] = 0.0
     out["Coprod"] = out["Coprod"].fillna(0.0)
@@ -284,11 +280,8 @@ with st.sidebar:
     feed = st.selectbox("Crop residue", list(FEEDSTOCKS.keys()))
     qty = st.number_input("Quantity (tonnes dry residue per year)", min_value=1.0, value=1000.0, step=100.0)
     feed_cost = st.number_input("Delivered residue cost (₹ per tonne)", min_value=0.0, value=3000.0, step=100.0,
-                                help="Collection, transport and storage about ₹3,000/t (Verbio, via Mongabay). "
+                                help="What you pay to get the residue to your plant. About ₹3,000/t in one biogas company example (Verbio, via Mongabay). "
                                      "IOCL pays ₹1,800/t at the depot (ThePrint).")
-    dist = st.number_input("Distance to buyer (km)", min_value=0, value=100, step=50,
-                           help="Heavy products (pellets, biochar) cost more to ship than gas, ethanol or electricity, "
-                                "so distance can change the best route.")
     st.markdown('<div class="sb-h">Your goals</div>', unsafe_allow_html=True)
     goals_all = ["Heat / power", "Gaseous fuel", "Liquid fuel", "Soil / carbon storage"]
     goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
@@ -298,9 +291,8 @@ with st.sidebar:
     with st.expander("Expenses, transport and tax"):
         extra = st.number_input("Your other expenses (₹ per tonne of residue)", min_value=0.0, value=0.0, step=100.0,
                                 help="Anything else you pay, such as labour, storage or handling. Subtracted from profit.")
-        freight = st.number_input("Transport charges (₹ per tonne-km)", min_value=0.0, value=3.78, step=0.1,
-                                  help="Multiplied by the distance to the buyer and the weight of product shipped. "
-                                       "Default: about ₹3.78 per tonne-km by road (NCAER study).")
+        transport = st.number_input("Transport charges (₹ per tonne of residue)", min_value=0.0, value=0.0, step=100.0,
+                                    help="Enter your own transport cost, if any. Subtracted from profit.")
         tax = st.number_input("Tax (% of profit, if any)", min_value=0.0, max_value=60.0, value=0.0, step=1.0,
                               help="Applied only when profit is positive. Leave at 0 if there is no tax.")
 
@@ -322,7 +314,7 @@ with st.sidebar:
 df = base.copy()
 df["Revenue (Rs/t)"] = df["Yield"] * df["Price"] + df["Coprod"]
 df["Capital charge (Rs/t)"] = df["Capex"] * crf(DISCOUNT_RATE, PROJECT_LIFE)
-df["Transport (Rs/t)"] = df["ProdMass"] * dist * freight
+df["Transport (Rs/t)"] = transport
 df["Other expenses (Rs/t)"] = extra
 pre_tax = (df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost
            - df["Transport (Rs/t)"] - df["Other expenses (Rs/t)"])
@@ -410,13 +402,6 @@ with tab1:
         if len(df) > 1:
             run = df.iloc[1]
             note = f"Runner-up: {run['Pathway']}."
-            byp = df.sort_values("Profit (Rs/t)", ascending=False).reset_index(drop=True)
-            p1, p2 = byp.iloc[0], byp.iloc[1]
-            dm = (p1["ProdMass"] - p2["ProdMass"]) * freight
-            if dm > 0 and p1["Profit (Rs/t)"] > p2["Profit (Rs/t)"]:
-                reach = dist + (p1["Profit (Rs/t)"] - p2["Profit (Rs/t)"]) / dm
-                note += (f" On profit alone, {p1['Pathway']} stays ahead of {p2['Pathway']} "
-                         f"up to about {reach:,.0f} km from the buyer.")
             st.markdown(f'<div class="note">{note}</div>', unsafe_allow_html=True)
 
     with right:
@@ -607,7 +592,6 @@ with st.expander("Verified data and sources"):
 | CBG yield | about 105 kg/t straw | derived | Sangrur plant: 33 t/day from 1.1 lakh t/yr (Mongabay, 2023) |
 | CBG price | ₹54/kg (minimum ₹46/kg to 2029) | cited | SATAT / IOCL slab (IEA Task 37 presentation) |
 | CBG plant capex | ₹6.5 crore per t/day | cited | CSE national blueprint (₹6-7 crore) |
-| Road freight | ₹3.78 per tonne-km | cited | NCAER logistics cost study (reported by ThePrint) |
 | Biogas manure (FOM) | 1.75 t per t straw at ₹3/kg, 50 % assumed sold | cited / **assumption** | Mongabay (2023); CSE blueprint |
 | 2G ethanol yield | 143 L/t dry straw | cited | ThePrint: 2.1 lakh t straw -> 3 crore L |
 | 2G plant capex | over ₹900 crore | cited | IOCL Panipat (PIB, ICIS) |
@@ -626,5 +610,5 @@ with st.expander("Verified data and sources"):
 with st.expander("How each pathway was calculated"):
     for _, r in df.sort_values("Pathway").iterrows():
         st.markdown(f"**{r['Pathway']}.** {r['Basis']}")
-    st.markdown("**Profit** = product sales - plant capital charge - operating cost - residue cost - transport charges - "
+    st.markdown("**Profit** = product sales - plant capital charge - operating cost - residue cost - transport charges (entered by you) - "
                 "your other expenses - tax. Tax is charged only on positive profit.")
