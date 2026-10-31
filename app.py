@@ -9,7 +9,7 @@ st.set_page_config(page_title="Biorefinery Pathway Optimizer", page_icon="🌾",
 
 # =====================================================================
 # DATA LEGEND   [C] cited from a source   [D] derived from cited values
-#               [A] assumption (placeholder, replace in Phase III)
+#               [A] assumption (placeholder, replace with plant data when available)
 # All quantities are per tonne of DRY residue.
 # =====================================================================
 KCAL_PER_MJ = 238.85
@@ -126,7 +126,7 @@ def build_pathways(feed):
 # SIDEBAR
 # =====================================================================
 st.title("🌾 Biorefinery Pathway Optimizer")
-st.caption("Phase II prototype. Compares conversion pathways for crop residues by profit and CO2 avoided, "
+st.caption("Compares conversion pathways for crop residues by profit and CO2 avoided, "
            "using Indian prices and plant data from published sources. Values are tagged cited / derived / assumption.")
 
 with st.sidebar:
@@ -346,7 +346,7 @@ with st.expander("Verified data and sources"):
 | Ethanol price | Rs 66.61/L | cited | Weighted average ex-mill price ESY 2025-26 (Lok Sabha reply) |
 | Biochar yield, carbon retention | 38 %, 45 % | cited / derived | SBJChem 2018; Bioresource Technology 155 (2014) |
 | Biochar price and cost | Rs 12,000/t, Rs 2,500/t residue | **assumption** | No reliable Indian price found; cost from a Vietnam study |
-| Pellet operating cost, CBG/ethanol O&M | Rs 1,200/t, 5 % of capex | **assumption** | To be replaced with plant data in Phase III |
+| Pellet operating cost, CBG/ethanol O&M | Rs 1,200/t, 5 % of capex | **assumption** | To be replaced with plant data when available |
 | Delivered residue cost | Rs 3,000/t | cited | Verbio (Mongabay); IOCL pays Rs 1,800/t at depot |
 
 **Cross-checks:** the model's rice-straw ethanol yield reproduces IOCL Panipat, and the biogas lab range (92-280 L CH4/kg VS) gives about 118 kg CH4/t, consistent with the 105 kg CBG/t seen at Sangrur.
