@@ -5,132 +5,171 @@ import streamlit as st
 st.set_page_config(page_title="Biorefinery Pathway Optimizer", page_icon="🌾", layout="wide")
 
 # =====================================================================
-# 1. FEEDSTOCK DATA  (per tonne of DRY feedstock)
-#    status: cited = taken from a paper | derived = calculated from cited
-#            values | assumption = placeholder to be replaced in Phase 3
+# DATA LEGEND   [C] cited from a source   [D] derived from cited values
+#               [A] assumption (placeholder, replace in Phase III)
+# All quantities are per tonne of DRY residue.
 # =====================================================================
+KCAL_PER_MJ = 238.85
+
 FEEDSTOCKS = {
-    "Rice straw": {
-        "hhv_gj_t": 15.0,          # assumption (typical 14-16 GJ/t, verify)
-        "carbon_frac": 0.38,       # assumption (verify with ultimate analysis)
-        "vs_frac": 0.86,           # derived: VS 80.82 / TS 93.7 (PMC9055357)
-        "ethanol_theoretical_l_kg": 0.42,   # cited: IJTech 2015 (cellulose 38.6 %, hemicellulose 19.7 %)
-        "biochar_yield": 0.38,     # interpolated: 33.9-49.9 wt% over 700-300 C (SBJChem 2018 paper, see Sources)
-        "ch4_l_per_kg_vs": 190,    # cited range 92-280 L/kg VS (review, see Sources); mid value
-    },
-    "Sugarcane bagasse": {
-        "hhv_gj_t": 17.9,          # cited: 17.88 MJ/kg dry (range 17-19.9)
-        "carbon_frac": 0.47,       # cited: ultimate analysis 46.8-48.0 % C
-        "vs_frac": None,
-        "ethanol_theoretical_l_kg": 0.51,   # derived: scaled from rice straw by carbohydrate fraction (about 71 % vs 58.3 %)
-        "biochar_yield": 0.25,     # assumption (lit. gives 16 % in a fast free-fall reactor)
-        "ch4_l_per_kg_vs": None,
-    },
+    "Rice straw": dict(
+        hhv=14.6,          # [C] MJ/kg, range 14.08-15.09 (Springer rice straw chapter)
+        c_frac=0.38,       # [A] carbon fraction of dry straw
+        biochar_yield=0.38,   # [D] interpolated from 33.9-49.9 wt% (SBJChem 2018)
+        ret_c=0.45,        # [C] 45 % of straw carbon retained in biochar (Bioresour. Technol. 155, 2014)
+        etoh_l=143.0,      # [C/D] IOCL Panipat: 2.1 lakh t dry straw -> 3 crore L (ThePrint)
+        cbg_kg=105.0,      # [D] Sangrur plant: 33 t/day CBG from 1.1 lakh t straw/yr; 8-9 t straw per t CBG
+        power_capex_mw=7.44e7,   # [C] Rs per MW, rice-straw air-cooled (CERC proposal 2026)
+    ),
+    "Sugarcane bagasse": dict(
+        hhv=17.9,          # [C] MJ/kg dry (17.88 +/- 0.48)
+        c_frac=0.47,       # [C] ultimate analysis 46.8-48.0 % C
+        biochar_yield=0.25,   # [A] literature gives 16 % in a fast free-fall reactor
+        ret_c=0.35,        # [A]
+        etoh_l=174.0,      # [D] rice-straw yield scaled by carbohydrate fraction (0.51 vs 0.42 L/kg theoretical)
+        cbg_kg=None,       # no reliable data yet
+        power_capex_mw=6.38e7,   # [C] Rs per MW, biomass Rankine (lower end, CERC proposal 2026)
+    ),
 }
 
-# Constants
-GRID_EF = 0.727          # kg CO2 / kWh, CEA CO2 Baseline Database v20 (FY 2023-24, RE-adjusted average)
-COAL_EF = 94.6           # kg CO2 / GJ, IPCC default (bituminous coal)
-CH4_CO2 = 1.96           # kg CO2 per m3 CH4 burned (stoichiometry)
-ETOH_AVOIDED = 0.66 * 2.31   # kg CO2 per L ethanol (0.66 L petrol-equivalent x 2.31 kg CO2/L)
-BIOCHAR_RETAINED_C = 0.45    # 45 % of straw carbon retained in biochar (slow pyrolysis of rice straw, Bioresour. Technol. 155, 2014)
-BIOCHAR_PERMANENCE = 0.80    # assumption: share that stays stable in soil
+# ---- constants -------------------------------------------------------
+GRID_EF = 0.727          # [C] kg CO2/kWh, CEA CO2 Baseline Database v20, FY2023-24 (RE-adjusted average)
+COAL_EF = 94.6           # [C] kg CO2/GJ, IPCC 2006 default (bituminous coal)
+CH4_CO2 = 2.75 * 0.95    # [D] kg CO2 per kg CBG (stoichiometry, CBG >= 95 % methane)
+ETOH_AVOIDED = 0.66 * 2.31   # [D] kg CO2 per L ethanol (0.66 L petrol-equivalent x 2.31 kg CO2/L)
+PELLET_BENCH = 2.27      # [C] Rs per 1000 kcal, MoP benchmark price, northern region, ex-GST
+SHR = 4000.0             # [C] kcal/kWh station heat rate, regulator norm
+AUX = 0.10               # [C] auxiliary consumption, regulator norm
+OM_POWER_MW = 5.47e6     # [C] Rs per MW per year, CERC 2024 O&M norm (FY2024-25)
+PLF = 0.80               # [C] plant load factor norm
+ETOH_PRICE = 66.61       # [C] Rs/L weighted average ex-mill price, ESY 2025-26 (range 57.97-71.86)
+CBG_PRICE = 54.0         # [C] Rs/kg SATAT price slab (minimum guaranteed 46 Rs/kg to 2029)
+POWER_TARIFF = 5.22      # [C] Rs/kWh, PSERC approved biomass plant tariff FY2025-26 (CERC generic proposals: 9.6-11.6)
+
+
+def crf(rate, years):
+    return rate * (1 + rate) ** years / ((1 + rate) ** years - 1)
 
 
 def build_pathways(feed):
     f = FEEDSTOCKS[feed]
     rows = []
+    hhv_kcal = f["hhv"] * KCAL_PER_MJ          # kcal per kg
 
-    # Pelletization (heat fuel)
-    pellet_yield = 0.90   # t pellets / t feed (assumption)
+    # 1. Pelletization -------------------------------------------------
+    y = 0.90                                      # [D] 1.05-1.15 t feed per t pellet (PelletRates)
     rows.append(dict(
-        Pathway="Pelletization", Goal="Heat / power", Product="Pellets", Unit="t",
-        Yield=pellet_yield, Price=7500.0, ProcCost=1500.0, ProcEmis=70.0,
-        Avoided=pellet_yield * f["hhv_gj_t"] * COAL_EF,
-        Basis="Yield, price, cost: assumptions. Avoided CO2 = pellet energy x coal EF (IPCC)"))
+        Pathway="Pelletization", Goal="Heat / power", Product="Pellets", Unit="t", Yield=y,
+        Price=PELLET_BENCH * hhv_kcal,            # [C] benchmark Rs/1000 kcal x calorific value
+        Capex=1e7 / (6000 / y),                   # [C] Rs 1 crore per tonne/hour plant (DownToEarth); 6000 h/yr [A]
+        Opex=1200.0,                              # [A] power 90-150 kWh/t pellet + labour + maintenance
+        Avoided=y * f["hhv"] * COAL_EF,           # [D] cross-check: NTPC reports 1,283 kg CO2 per t pellet
+        ProcEmis=y * 102,                         # [C] NTPC: 63-102 kg CO2 per t pellet (upper value)
+        Basis="Price = MoP benchmark Rs 2.27 per 1000 kcal x calorific value. Capex Rs 1 crore per t/h. "
+              "Avoided CO2 = pellet energy x coal factor (NTPC reports 1,283 kg/t). Opex is an assumption."))
 
-    # Direct combustion -> electricity
-    eff = 0.25
-    kwh = f["hhv_gj_t"] * 1000 / 3.6 * eff
+    # 2. Combustion for power -------------------------------------------
+    gross = hhv_kcal * 1000 / SHR                 # kWh gross per tonne
+    net = gross * (1 - AUX)
+    fuel_per_mw = 8760 * PLF * 1000 / gross       # tonnes of feed per MW per year
     rows.append(dict(
-        Pathway="Combustion for power", Goal="Heat / power", Product="Electricity", Unit="kWh",
-        Yield=kwh, Price=5.0, ProcCost=1800.0, ProcEmis=20.0,
-        Avoided=kwh * GRID_EF,
-        Basis="Energy from HHV x 25 % efficiency (assumption). Avoided CO2 = grid EF (CEA v20)"))
+        Pathway="Combustion for power", Goal="Heat / power", Product="Electricity", Unit="kWh", Yield=net,
+        Price=POWER_TARIFF,
+        Capex=f["power_capex_mw"] / fuel_per_mw,  # [C] CERC capital cost norm
+        Opex=OM_POWER_MW / fuel_per_mw,           # [C] CERC O&M norm
+        Avoided=net * GRID_EF,                    # [C] CEA grid factor
+        ProcEmis=10.0,                            # [A] handling and transport
+        Basis="Net kWh = calorific value / heat rate 4000 kcal/kWh x (1 - 10 % auxiliary). "
+              "Capex and O&M from CERC norms. Tariff = Punjab regulator FY2025-26. Avoided CO2 = CEA grid factor."))
 
-    # Anaerobic digestion (only where data is available)
-    if f["ch4_l_per_kg_vs"]:
-        m3 = f["vs_frac"] * 1000 * f["ch4_l_per_kg_vs"] / 1000
+    # 3. Anaerobic digestion -> CBG (rice straw only) ---------------------
+    if f["cbg_kg"]:
+        cbg_t_per_day_feed = (1000 / f["cbg_kg"]) * 330
+        capex = 6.5e7 / cbg_t_per_day_feed        # [C] Rs 6-7 crore per tonne/day CBG, paddy straw (CSE)
         rows.append(dict(
-            Pathway="Anaerobic digestion (biomethane)", Goal="Gaseous fuel", Product="Methane", Unit="m3",
-            Yield=m3, Price=35.0, ProcCost=2500.0, ProcEmis=40.0,
-            Avoided=m3 * CH4_CO2,
-            Basis="CH4 yield 92-280 L/kg VS (review), mid value used. Price, cost: assumptions"))
+            Pathway="Anaerobic digestion (CBG)", Goal="Gaseous fuel", Product="CBG", Unit="kg", Yield=f["cbg_kg"],
+            Price=CBG_PRICE, Capex=capex, Opex=0.05 * capex,     # O&M 5 % of capex [A]
+            Coprod=1.75 * 1000 * 3.0 * 0.5,       # manure: 1.75 t/t straw [C], Rs 3/kg [C], 50 % sold [A]
+            Avoided=f["cbg_kg"] * CH4_CO2,
+            ProcEmis=40.0,                        # [A]
+            Basis="Yield from the Sangrur paddy-straw plant (about 100-110 kg CBG per t). Price = SATAT slab. "
+                  "Capex Rs 6.5 crore per t/day CBG. Manure (FOM) income: 1.75 t per t straw x Rs 3/kg x 50 % sold (assumption)."))
 
-    # Slow pyrolysis -> biochar
-    biochar_t = f["biochar_yield"]
-    c_stored = f["carbon_frac"] * BIOCHAR_RETAINED_C * 44 / 12 * 1000 * BIOCHAR_PERMANENCE
+    # 4. Slow pyrolysis -> biochar ------------------------------------------
+    stored = f["c_frac"] * f["ret_c"] * 44 / 12 * 1000 * 0.80   # kg CO2e per t feed; 80 % permanence [A]
     rows.append(dict(
         Pathway="Slow pyrolysis (biochar)", Goal="Soil / carbon storage", Product="Biochar", Unit="t",
-        Yield=biochar_t, Price=12000.0, ProcCost=3000.0, ProcEmis=60.0,
-        Avoided=c_stored,
-        Basis="Biochar yield from literature. Carbon stored = C fraction x 45 % retained x 80 % permanence (assumption)"))
+        Yield=f["biochar_yield"], Price=12000.0, Capex=0.0, Opex=2500.0,
+        Avoided=stored, ProcEmis=60.0,
+        Basis="Yield from literature. Price: no reliable Indian market price (assumption). Cost about Rs 2,500 per t "
+              "residue (Vietnam study, low confidence). Stored carbon = C fraction x retained share x 80 % permanence."))
 
-    # Cellulosic ethanol
-    overall_eff = 0.55
-    litres = f["ethanol_theoretical_l_kg"] * 1000 * overall_eff
+    # 5. Cellulosic (2G) ethanol -----------------------------------------------
+    capex = 9e9 / 210000                          # [C] IOCL Panipat: over Rs 900 crore, 2.1 lakh t/yr
     rows.append(dict(
-        Pathway="Cellulosic ethanol", Goal="Liquid fuel", Product="Ethanol", Unit="L",
-        Yield=litres, Price=60.0, ProcCost=6500.0, ProcEmis=150.0,
-        Avoided=litres * ETOH_AVOIDED,
-        Basis="Theoretical yield x 55 % overall efficiency (assumption). Price, cost: assumptions"))
-
-    return pd.DataFrame(rows)
+        Pathway="Cellulosic ethanol (2G)", Goal="Liquid fuel", Product="Ethanol", Unit="L", Yield=f["etoh_l"],
+        Price=ETOH_PRICE, Capex=capex, Opex=0.05 * capex,        # O&M 5 % of capex [A]; enzymes not included
+        Avoided=f["etoh_l"] * ETOH_AVOIDED, ProcEmis=150.0,      # [A]
+        Basis="Yield and capex from the IOCL Panipat 2G plant (over Rs 900 crore, 2.1 lakh t straw -> 3 crore L). "
+              "Price = weighted average ex-mill ethanol price ESY 2025-26. Enzyme and chemical costs not included."))
+    out = pd.DataFrame(rows)
+    if "Coprod" not in out:
+        out["Coprod"] = 0.0
+    out["Coprod"] = out["Coprod"].fillna(0.0)
+    return out
 
 
 # =====================================================================
-# 2. SIDEBAR  (user inputs)
+# SIDEBAR
 # =====================================================================
 st.title("🌾 Biorefinery Pathway Optimizer")
-st.caption("Prototype (Phase II). Compares conversion pathways for crop residues by profit and CO2 avoided. "
-           "Yields come from published studies; prices and process costs are editable assumptions.")
+st.caption("Phase II prototype. Compares conversion pathways for crop residues by profit and CO2 avoided, "
+           "using Indian prices and plant data from published sources. Values are tagged cited / derived / assumption.")
 
 with st.sidebar:
     st.header("1. Your inputs")
     feed = st.selectbox("Crop residue", list(FEEDSTOCKS.keys()))
     qty = st.number_input("Quantity (tonnes dry residue / year)", min_value=1.0, value=1000.0, step=100.0)
-    feed_cost = st.number_input("Residue cost (Rs per tonne)", min_value=0.0, value=1500.0, step=100.0)
+    feed_cost = st.number_input("Delivered residue cost (Rs per tonne)", min_value=0.0, value=3000.0, step=100.0,
+                                help="Collection, transport and storage about Rs 3,000/t (Verbio, via Mongabay). "
+                                     "IOCL pays Rs 1,800/t at the depot (ThePrint).")
     goals_all = ["Heat / power", "Gaseous fuel", "Liquid fuel", "Soil / carbon storage"]
     goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
     st.header("2. Your priority")
-    w = st.slider("Profit  <-->  CO2 avoided", 0, 100, 50,
-                  help="0 = care only about CO2, 100 = care only about profit")
+    w = st.slider("CO2 avoided  <-->  Profit", 0, 100, 50, help="0 = only CO2 matters, 100 = only profit matters")
+
+    with st.expander("3. Financial assumptions"):
+        rate = st.number_input("Discount rate (%)", value=10.0, step=0.5) / 100
+        life = st.number_input("Project life (years)", value=20, step=1)
+        usd = st.number_input("Rs per US dollar", value=85.0, step=1.0)
+        credit = st.number_input("Carbon credit for biochar (US$ per t CO2e)", value=0.0, step=10.0,
+                                 help="Voluntary biochar credits have traded at roughly US$100-300 per t CO2e (PelletRates, 2026).")
 
 base = build_pathways(feed)
 
 with st.sidebar:
-    with st.expander("3. Edit assumptions (prices and costs)"):
-        edited = []
+    with st.expander("4. Edit prices and costs"):
+        pr, cx, ox = [], [], []
         for _, r in base.iterrows():
             st.markdown(f"**{r['Pathway']}**")
-            price = st.number_input(f"Price (Rs per {r['Unit']})", value=float(r["Price"]), key=f"{feed}_{r['Pathway']}_p")
-            cost = st.number_input("Processing cost (Rs per t residue)", value=float(r["ProcCost"]), key=f"{feed}_{r['Pathway']}_c")
-            emis = st.number_input("Process emissions (kg CO2 per t residue)", value=float(r["ProcEmis"]), key=f"{feed}_{r['Pathway']}_e")
-            edited.append((price, cost, emis))
-        base["Price"] = [e[0] for e in edited]
-        base["ProcCost"] = [e[1] for e in edited]
-        base["ProcEmis"] = [e[2] for e in edited]
+            pr.append(st.number_input(f"Price (Rs per {r['Unit']})", value=float(round(r["Price"], 2)), key=f"{feed}{r['Pathway']}p"))
+            cx.append(st.number_input("Capex (Rs per annual t residue)", value=float(round(r["Capex"], 0)), key=f"{feed}{r['Pathway']}c"))
+            ox.append(st.number_input("Operating cost (Rs per t residue)", value=float(round(r["Opex"], 0)), key=f"{feed}{r['Pathway']}o"))
+        base["Price"], base["Capex"], base["Opex"] = pr, cx, ox
 
 # =====================================================================
-# 3. CALCULATIONS
+# CALCULATIONS
 # =====================================================================
 df = base.copy()
-df["Revenue (Rs/t)"] = df["Yield"] * df["Price"]
-df["Profit (Rs/t)"] = df["Revenue (Rs/t)"] - df["ProcCost"] - feed_cost
+df["Revenue (Rs/t)"] = df["Yield"] * df["Price"] + df["Coprod"]
+# biochar carbon credit
+cred = ((df["Pathway"] == "Slow pyrolysis (biochar)") * df["Avoided"] / 1000 * credit * usd)
+df["Revenue (Rs/t)"] = df["Revenue (Rs/t)"] + cred
+df["Capital charge (Rs/t)"] = df["Capex"] * crf(rate, life)
+df["Profit (Rs/t)"] = df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost
 df["Net CO2 avoided (kg/t)"] = df["Avoided"] - df["ProcEmis"]
 df["Total profit (Rs lakh/yr)"] = df["Profit (Rs/t)"] * qty / 1e5
 df["Total CO2 avoided (t/yr)"] = df["Net CO2 avoided (kg/t)"] * qty / 1000
-
 df = df[df["Goal"].isin(goals)].reset_index(drop=True)
 
 if df.empty:
@@ -148,16 +187,15 @@ df.insert(0, "Rank", range(1, len(df) + 1))
 best = df.iloc[0]
 
 # =====================================================================
-# 4. RESULTS
+# RESULTS
 # =====================================================================
 st.subheader(f"Results for {qty:,.0f} t/year of {feed.lower()}")
 c1, c2, c3 = st.columns(3)
 c1.metric("Recommended pathway", best["Pathway"])
 c2.metric("Profit", f"Rs {best['Total profit (Rs lakh/yr)']:,.1f} lakh/yr")
 c3.metric("CO2 avoided", f"{best['Total CO2 avoided (t/yr)']:,.0f} t/yr")
-
 if best["Profit (Rs/t)"] < 0:
-    st.info("Profit is negative with the current assumptions. Try changing prices or costs in the sidebar.")
+    st.info("Profit is negative with the current inputs for the recommended pathway.")
 
 st.markdown("#### Ranked pathways")
 show = df[["Rank", "Pathway", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
@@ -180,28 +218,40 @@ with right:
     st.plotly_chart(fig2, width="stretch")
 
 # =====================================================================
-# 5. DATA BASIS
+# DATA BASIS
 # =====================================================================
-with st.expander("How each pathway was calculated (data basis)"):
+with st.expander("How each pathway was calculated"):
     st.dataframe(df[["Pathway", "Basis"]], width="stretch", hide_index=True)
-    st.markdown(
-        "**Status of the numbers:** yields are taken or derived from the studies below. "
-        "Prices, processing costs, efficiencies marked as assumptions are placeholders and will be replaced "
-        "with cited techno-economic data in Phase III.")
 
-with st.expander("Sources used so far"):
+with st.expander("Verified data and sources"):
     st.markdown("""
-Full APA references will be formatted in the report. Links below are the pages the numbers were taken from.
+**Status key:** cited = taken from a source, derived = calculated from cited values, assumption = placeholder.
 
-- **Rice straw solids (TS/VS):** https://pmc.ncbi.nlm.nih.gov/articles/PMC9055357
-- **Rice straw methane yield (range 92-280 L/kg VS):** review at https://core.ac.uk/download/322792246.pdf
-- **Rice straw biochar yield (33.9-49.9 wt%):** https://doi.org/10.48141/SBJCHEM.v26.n26.2018.22
-- **Carbon retained in biochar (45 %):** Slow pyrolysis of rice straw, Bioresource Technology, 155 (2014): https://www.pubmed.gov/24423650/
-- **Rice straw theoretical ethanol yield (0.42 L/kg):** https://ijtech.eng.ui.ac.id/download/article/1326
-- **Bioethanol from rice straw overview:** Binod, P., et al. (2010). *Bioresource Technology, 101*(13), 4767-4774.
-- **Bagasse heating value (17.88 MJ/kg dry):** https://taylorandfrancis.com/knowledge/Engineering_and_technology/Power_%26_energy/Bagasse
-- **Bagasse carbon content and pyrolysis yields:** https://fjet.fudutsinma.edu.ng/index.php/fjet/article/download/40/37/75
-- **India grid emission factor (0.727 t CO2/MWh):** CEA CO2 Baseline Database v20 (Dec 2024), https://cea.nic.in
-- **Coal emission factor:** IPCC (2006) Guidelines for National Greenhouse Gas Inventories
-- **Biomass composition database:** TNO Phyllis2, https://phyllis.nl/
+| Parameter | Value used | Status | Source |
+|---|---|---|---|
+| Rice straw heating value | 14.6 MJ/kg dry | cited | Springer chapter on rice straw (range 14.08-15.09) |
+| Bagasse heating value | 17.9 MJ/kg dry | cited | Taylor & Francis bagasse entry (17.88 +/- 0.48) |
+| Pellet price | Rs 2.27 per 1000 kcal (about Rs 7,900/t) | cited | Ministry of Power benchmark; NTPC paid about Rs 7,000/t in 2020 |
+| Pellet plant capex | Rs 1 crore per t/h | cited | Down To Earth (government scheme assumes Rs 35 lakh) |
+| Pellet CO2 factors | 1,283 kg avoided, 63-102 kg process per t pellet | cited | NTPC presentation, 2024 |
+| Station heat rate / auxiliary | 4,000 kcal/kWh, 10 % | cited | State regulator norms (2025) |
+| Biomass power capex | Rs 6.38-7.44 crore/MW | cited | CERC generic tariff proposal, 2026 |
+| Biomass O&M | Rs 54.7 lakh/MW/yr | cited | CERC RE regulations 2024 |
+| Biomass power tariff | Rs 5.22/kWh (CERC generic proposals Rs 9.6-11.6) | cited | PSERC order FY2025-26; Powerline, Aug 2026 |
+| Grid emission factor | 0.727 t CO2/MWh | cited | CEA CO2 Baseline Database v20 |
+| CBG yield | about 105 kg/t straw | derived | Sangrur plant: 33 t/day from 1.1 lakh t/yr (Mongabay, 2023) |
+| CBG price | Rs 54/kg (minimum Rs 46/kg to 2029) | cited | SATAT / IOCL slab (IEA Task 37 presentation) |
+| CBG plant capex | Rs 6.5 crore per t/day | cited | CSE national blueprint (Rs 6-7 crore) |
+| Biogas manure (FOM) | 1.75 t per t straw at Rs 3/kg, 50 % assumed sold | cited / **assumption** | Mongabay (2023); CSE blueprint |
+| 2G ethanol yield | 143 L/t dry straw | cited | ThePrint: 2.1 lakh t straw -> 3 crore L |
+| 2G plant capex | over Rs 900 crore | cited | IOCL Panipat (PIB, ICIS) |
+| Ethanol price | Rs 66.61/L | cited | Weighted average ex-mill price ESY 2025-26 (Lok Sabha reply) |
+| Biochar yield, carbon retention | 38 %, 45 % | cited / derived | SBJChem 2018; Bioresource Technology 155 (2014) |
+| Biochar price and cost | Rs 12,000/t, Rs 2,500/t residue | **assumption** | No reliable Indian price found; cost from a Vietnam study |
+| Pellet operating cost, CBG/ethanol O&M | Rs 1,200/t, 5 % of capex | **assumption** | To be replaced with plant data in Phase III |
+| Delivered residue cost | Rs 3,000/t | cited | Verbio (Mongabay); IOCL pays Rs 1,800/t at depot |
+
+**Cross-checks:** the model's rice-straw ethanol yield reproduces IOCL Panipat, and the biogas lab range (92-280 L CH4/kg VS) gives about 118 kg CH4/t, consistent with the 105 kg CBG/t seen at Sangrur.
+
+**Not yet included:** open-burning baseline (about 1,168 kg CO2 per t straw burnt; Smith et al.), enzyme costs, subsidies (for example capital grants for pellet plants and CBG plants).
 """)
