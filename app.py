@@ -1,5 +1,8 @@
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+from scipy.optimize import linprog
 import streamlit as st
 
 st.set_page_config(page_title="Biorefinery Pathway Optimizer", page_icon="🌾", layout="wide")
@@ -137,6 +140,9 @@ with st.sidebar:
     goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
     st.header("2. Your priority")
     w = st.slider("CO2 avoided  <-->  Profit", 0, 100, 50, help="0 = only CO2 matters, 100 = only profit matters")
+    cap_pct = st.slider("Max share of residue to any one pathway (%)", 20, 100, 40, step=10,
+                        help="Used by the Optimization tab. No single route can absorb all residue in practice "
+                             "(plant capacity, market demand). Assumption, change it freely.")
 
     with st.expander("3. Financial assumptions"):
         rate = st.number_input("Discount rate (%)", value=10.0, step=0.5) / 100
@@ -186,36 +192,128 @@ df = df.sort_values("Score", ascending=False).reset_index(drop=True)
 df.insert(0, "Rank", range(1, len(df) + 1))
 best = df.iloc[0]
 
-# =====================================================================
-# RESULTS
-# =====================================================================
-st.subheader(f"Results for {qty:,.0f} t/year of {feed.lower()}")
-c1, c2, c3 = st.columns(3)
-c1.metric("Recommended pathway", best["Pathway"])
-c2.metric("Profit", f"Rs {best['Total profit (Rs lakh/yr)']:,.1f} lakh/yr")
-c3.metric("CO2 avoided", f"{best['Total CO2 avoided (t/yr)']:,.0f} t/yr")
-if best["Profit (Rs/t)"] < 0:
-    st.info("Profit is negative with the current inputs for the recommended pathway.")
+tab1, tab2 = st.tabs(["Compare pathways", "Optimization"])
 
-st.markdown("#### Ranked pathways")
-show = df[["Rank", "Pathway", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
-show["Yield"] = show["Yield"].round(2)
-show["Profit (Rs/t)"] = show["Profit (Rs/t)"].round(0)
-show["Net CO2 avoided (kg/t)"] = show["Net CO2 avoided (kg/t)"].round(0)
-show["Score"] = show["Score"].round(2)
-st.dataframe(show, width="stretch", hide_index=True)
+with tab1:
+    st.subheader(f"Results for {qty:,.0f} t/year of {feed.lower()}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Recommended pathway", best["Pathway"])
+    c2.metric("Profit", f"Rs {best['Total profit (Rs lakh/yr)']:,.1f} lakh/yr")
+    c3.metric("CO2 avoided", f"{best['Total CO2 avoided (t/yr)']:,.0f} t/yr")
+    if best["Profit (Rs/t)"] < 0:
+        st.info("Profit is negative with the current inputs for the recommended pathway.")
 
-left, right = st.columns(2)
-with left:
-    fig = px.scatter(df, x="Profit (Rs/t)", y="Net CO2 avoided (kg/t)", text="Pathway", color="Pathway",
-                     title="Trade-off: profit vs CO2 avoided (per tonne of residue)")
-    fig.update_traces(marker=dict(size=14), textposition="top center")
-    fig.update_layout(showlegend=False)
-    st.plotly_chart(fig, width="stretch")
-with right:
-    fig2 = px.bar(df, x="Pathway", y="Score", color="Pathway", title="Overall score for your priority")
-    fig2.update_layout(showlegend=False)
-    st.plotly_chart(fig2, width="stretch")
+    st.markdown("#### Ranked pathways")
+    show = df[["Rank", "Pathway", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
+    show["Yield"] = show["Yield"].round(2)
+    show["Profit (Rs/t)"] = show["Profit (Rs/t)"].round(0)
+    show["Net CO2 avoided (kg/t)"] = show["Net CO2 avoided (kg/t)"].round(0)
+    show["Score"] = show["Score"].round(2)
+    st.dataframe(show, width="stretch", hide_index=True)
+
+    left, right = st.columns(2)
+    with left:
+        fig = px.scatter(df, x="Profit (Rs/t)", y="Net CO2 avoided (kg/t)", text="Pathway", color="Pathway",
+                         title="Trade-off: profit vs CO2 avoided (per tonne of residue)")
+        fig.update_traces(marker=dict(size=14), textposition="top center")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, width="stretch")
+    with right:
+        fig2 = px.bar(df, x="Pathway", y="Score", color="Pathway", title="Overall score for your priority")
+        fig2.update_layout(showlegend=False)
+        st.plotly_chart(fig2, width="stretch")
+
+
+
+# =====================================================================
+# OPTIMIZATION  (linear programming with SciPy, epsilon-constraint method)
+# =====================================================================
+def solve_lp(d, qty, cap, primary, co2_min=None, second=None):
+    """Allocate residue tonnes x_i to pathways (linear program, SciPy HiGHS).
+    primary / second: 'profit' or 'co2' (second is a tie-break)."""
+    prof = d["Profit (Rs/t)"].to_numpy(dtype=float)
+    co2 = d["Net CO2 avoided (kg/t)"].to_numpy(dtype=float)
+    n = len(d)
+    coef = {"profit": prof, "co2": co2}
+    bounds = [(0, cap * qty)] * n
+    A, b = [np.ones(n)], [qty]                       # total residue <= available
+    if co2_min is not None:
+        A.append(-co2)                               # CO2 avoided >= target
+        b.append(-co2_min)
+
+    r = linprog(-coef[primary], A_ub=np.array(A), b_ub=np.array(b), bounds=bounds, method="highs")
+    if not r.success:
+        return None
+    if second:
+        best = -r.fun
+        A2 = A + [-coef[primary]]                    # keep the primary objective at its optimum
+        b2 = b + [-(best - 1e-6 * max(1.0, abs(best)))]
+        r2 = linprog(-coef[second], A_ub=np.array(A2), b_ub=np.array(b2), bounds=bounds, method="highs")
+        if r2.success:
+            r = r2
+    xs = np.maximum(r.x, 0.0)
+    return dict(x=xs.tolist(), profit=float(prof @ xs), co2=float(co2 @ xs))
+
+
+with tab2:
+    st.markdown("#### Split the residue across pathways")
+    st.caption("A linear program decides how many tonnes go to each pathway. It maximizes profit while meeting a CO2 target "
+               "(epsilon-constraint method, Mavrotas, 2009), and traces the profit-vs-CO2 trade-off curve.")
+    cap = cap_pct / 100
+    if cap * len(df) < 1:
+        st.warning("The selected pathways cannot absorb all the residue at this cap. "
+                   "Some residue stays unused. Raise the cap or select more goals.")
+    a = solve_lp(df, qty, cap, "profit", second="co2")
+    b = solve_lp(df, qty, cap, "co2", second="profit")
+    if a is None or b is None:
+        st.error("The optimization could not be solved. Check your inputs.")
+    else:
+        co2_a, co2_b = a["co2"], b["co2"]
+        if co2_b - co2_a < 1e-6:
+            st.success("No trade-off here: the most profitable allocation is also the best for CO2.")
+            chosen = a
+        else:
+            pts = []
+            for k in range(9):
+                eps = co2_a + (co2_b - co2_a) * k / 8
+                r = solve_lp(df, qty, cap, "profit", co2_min=eps - 1e-6)
+                if r:
+                    pts.append(r)
+            t = st.slider("Choose a point on the trade-off curve", 0, 100, 50,
+                          help="0 = maximum profit, 100 = maximum CO2 avoided")
+            eps_sel = co2_a + (co2_b - co2_a) * t / 100
+            chosen = solve_lp(df, qty, cap, "profit", co2_min=eps_sel - 1e-6)
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(x=[p["profit"] / 1e5 for p in pts], y=[p["co2"] / 1000 for p in pts],
+                                      mode="lines+markers", name="Pareto front"))
+            fig3.add_trace(go.Scatter(x=[chosen["profit"] / 1e5], y=[chosen["co2"] / 1000], mode="markers",
+                                      marker=dict(size=16, color="red"), name="Your choice"))
+            fig3.update_layout(title="Trade-off curve: profit vs CO2 avoided", xaxis_title="Profit (Rs lakh/yr)",
+                               yaxis_title="CO2 avoided (t/yr)")
+            st.plotly_chart(fig3, width="stretch")
+
+        alloc = pd.DataFrame({
+            "Pathway": df["Pathway"],
+            "Residue allocated (t/yr)": [round(v, 1) for v in chosen["x"]],
+            "Share (%)": [round(100 * v / qty, 1) for v in chosen["x"]],
+            "Profit (Rs lakh/yr)": [round(df.loc[i, "Profit (Rs/t)"] * chosen["x"][i] / 1e5, 2) for i in range(len(df))],
+            "CO2 avoided (t/yr)": [round(df.loc[i, "Net CO2 avoided (kg/t)"] * chosen["x"][i] / 1000, 1) for i in range(len(df))],
+        })
+        alloc = alloc[alloc["Residue allocated (t/yr)"] > 0.05].reset_index(drop=True)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total profit", f"Rs {chosen['profit'] / 1e5:,.1f} lakh/yr")
+        m2.metric("Total CO2 avoided", f"{chosen['co2'] / 1000:,.0f} t/yr")
+        m3.metric("Residue used", f"{sum(chosen['x']):,.0f} of {qty:,.0f} t")
+        if sum(chosen["x"]) < qty - 1:
+            st.caption(f"{qty - sum(chosen['x']):,.0f} t of residue is left unprocessed: routes that lose money are skipped "
+                       "unless they are needed to reach the CO2 target, or the cap on each pathway is reached.")
+        st.markdown("##### Recommended allocation")
+        st.dataframe(alloc, width="stretch", hide_index=True)
+        figb = px.bar(alloc, x="Pathway", y="Residue allocated (t/yr)", color="Pathway",
+                      title="How the residue is split")
+        figb.update_layout(showlegend=False)
+        st.plotly_chart(figb, width="stretch")
+        st.download_button("Download allocation (CSV)", alloc.to_csv(index=False), "allocation.csv", "text/csv")
 
 # =====================================================================
 # DATA BASIS
