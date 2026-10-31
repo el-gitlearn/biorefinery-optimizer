@@ -1,148 +1,11 @@
-import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
-from plotly.subplots import make_subplots
+import numpy as np
 from scipy.optimize import linprog
+import streamlit as st
 
-st.set_page_config(page_title="Biorefinery Pathway Optimizer", page_icon="🌾", layout="wide",
-                   initial_sidebar_state="auto")
-
-# =====================================================================
-# DESIGN TOKENS
-# =====================================================================
-INK, MUTED, CANVAS, LINE = "#14281D", "#5B6B60", "#F5F8F2", "#DCE5D6"
-LEAF, STRAW, TEAL, LOSS = "#1F6F4A", "#D9A21B", "#0E7C86", "#B5523B"
-PATH_COLOR = {
-    "Pelletization": "#C98A12",
-    "Combustion for power": "#CF4B2C",
-    "Anaerobic digestion (CBG)": "#2F8F6B",
-    "Slow pyrolysis (biochar)": "#46433E",
-    "Cellulosic ethanol (2G)": "#3A6EA5",
-}
-SHORT = {
-    "Pelletization": "Pellets",
-    "Combustion for power": "Power",
-    "Anaerobic digestion (CBG)": "Biogas (CBG)",
-    "Slow pyrolysis (biochar)": "Biochar",
-    "Cellulosic ethanol (2G)": "Ethanol",
-}
-
-CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Sans:wght@400;500;700&display=swap');
-:root { --ink:#14281D; --muted:#5B6B60; --canvas:#F5F8F2; --line:#DCE5D6; --leaf:#1F6F4A; --straw:#D9A21B; --teal:#0E7C86; }
-html, body, .stApp, p, label, li, input, textarea, button, [data-baseweb="select"] div, .stMarkdown, .stCaption {
-  font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-h1, h2, h3, h4, [data-testid="stMetricValue"], .hero-name, .brand, .fig b, .page-title {
-  font-family: 'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif !important;
-  letter-spacing: -0.01em;
-}
-.stApp { background: var(--canvas); color: var(--ink); }
-.block-container { max-width: 1180px; padding-top: 1.6rem; padding-bottom: 4rem; }
-#MainMenu, footer, [data-testid="stAppDeployButton"], [data-testid="stDecoration"] { display: none !important; }
-header[data-testid="stHeader"] { background: transparent; }
-
-/* sidebar */
-[data-testid="stSidebar"] { background: #EBF1E6; border-right: 1px solid var(--line); }
-[data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
-.brand { font-size: 1.05rem; font-weight: 700; color: var(--leaf); margin: 0 0 .2rem 0; }
-.brand-sub { color: var(--muted); font-size: .82rem; margin: 0 0 1.1rem 0; line-height: 1.35; }
-.sb-h { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: .98rem; color: var(--ink);
-        margin: 1.1rem 0 .25rem 0; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
-[data-testid="stSidebar"] label p { font-size: .86rem; font-weight: 500; color: var(--ink); }
-
-/* page header */
-.page-title { font-size: clamp(1.7rem, 3.2vw, 2.5rem); font-weight: 700; line-height: 1.12; margin: .2rem 0 .5rem 0; color: var(--ink); max-width: 26ch; }
-.page-sub { color: var(--muted); font-size: 1.02rem; line-height: 1.5; max-width: 62ch; margin: 0 0 1.4rem 0; }
-
-/* hero result */
-.hero { display: flex; flex-wrap: wrap; gap: 1.6rem 2.4rem; align-items: center; justify-content: space-between;
-        background: var(--ink); color: #F3F7EF; border-radius: 18px; padding: 1.7rem 2rem; margin-bottom: 1.6rem; }
-.hero-k { color: #B9CBB9; font-size: .92rem; margin-bottom: .25rem; }
-.hero-name { font-size: clamp(1.8rem, 3.4vw, 2.7rem); font-weight: 700; line-height: 1.05; }
-.hero-why { color: #CFE0CF; margin-top: .55rem; font-size: .98rem; max-width: 44ch; line-height: 1.45; }
-.hero-figs { display: flex; flex-wrap: wrap; gap: 1.2rem 2.2rem; }
-.fig b { display: block; font-size: 1.65rem; font-weight: 700; color: #FFFFFF; line-height: 1.15; }
-.fig span { color: #B9CBB9; font-size: .85rem; }
-.fig.gold b { color: #F0C45A; } .fig.teal b { color: #6FD0D8; }
-
-/* ranked list */
-.rank { margin: .2rem 0 1rem 0; }
-.rk-row { display: grid; grid-template-columns: 1.6rem 1fr; gap: .2rem .7rem; padding: .8rem 0; border-bottom: 1px solid var(--line); }
-.rk-row:last-child { border-bottom: none; }
-.rk-n { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; color: var(--muted); font-size: 1.1rem; }
-.rk-row.best .rk-n { color: var(--leaf); }
-.rk-name { font-weight: 700; display: flex; align-items: center; gap: .5rem; }
-.dot { width: .72rem; height: .72rem; border-radius: 50%; display: inline-block; flex: none; }
-.rk-goal { color: var(--muted); font-size: .82rem; font-weight: 400; margin-left: .2rem; }
-.rk-bar { height: 6px; background: #E2EAD9; border-radius: 4px; margin: .45rem 0 .35rem 0; overflow: hidden; }
-.rk-bar i { display: block; height: 100%; border-radius: 4px; }
-.rk-fig { color: var(--muted); font-size: .86rem; }
-.rk-fig b { color: var(--ink); font-weight: 500; }
-
-/* section titles inside tabs */
-.sec { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 1.25rem; margin: 1.8rem 0 .15rem 0; color: var(--ink); }
-.sec-sub { color: var(--muted); font-size: .95rem; margin: 0 0 .7rem 0; max-width: 70ch; }
-
-/* tabs */
-button[data-baseweb="tab"] { font-size: 1rem; font-weight: 500; padding: .7rem 1.1rem; }
-button[data-baseweb="tab"][aria-selected="true"] { font-weight: 700; color: var(--ink); }
-[data-baseweb="tab-highlight"] { background-color: var(--leaf) !important; height: 3px; }
-[data-baseweb="tab-border"] { background-color: var(--line); }
-
-/* metrics, expanders, buttons */
-[data-testid="stMetric"] { background: transparent; padding: .2rem 0; }
-[data-testid="stMetricLabel"] p { color: var(--muted); font-size: .88rem; }
-[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 700; color: var(--ink); }
-[data-testid="stExpander"] { border: 1px solid var(--line); border-radius: 12px; background: #FFFFFF; }
-[data-testid="stExpander"] summary p { font-weight: 500; }
-.stDownloadButton button { border-radius: 10px; border: 1px solid var(--leaf); color: var(--leaf); background: #FFFFFF; font-weight: 500; }
-.stDownloadButton button:hover { background: var(--leaf); color: #FFFFFF; border-color: var(--leaf); }
-[data-testid="stDataFrame"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-div[data-baseweb="radio"] label { font-weight: 500; }
-.note { color: var(--muted); font-size: .88rem; line-height: 1.5; }
-@media (max-width: 640px) { .hero { padding: 1.2rem; } .fig b { font-size: 1.35rem; } }
-</style>
-"""
-st.markdown(CSS, unsafe_allow_html=True)
-
-
-def style_fig(fig, height=360, margin=None):
-    fig.update_layout(
-        template="plotly_white", height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="DM Sans, system-ui, sans-serif", size=13, color=INK),
-        margin=margin or dict(l=10, r=10, t=40, b=10),
-        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=LINE, font_size=13, font_family="DM Sans, system-ui, sans-serif"),
-        title_font=dict(family="Bricolage Grotesque, DM Sans, sans-serif", size=17, color=INK),
-    )
-    fig.update_xaxes(gridcolor="#E7EDE2", zerolinecolor="#9DB09F", linecolor=LINE)
-    fig.update_yaxes(gridcolor="#E7EDE2", zerolinecolor="#9DB09F", linecolor=LINE)
-    return fig
-
-
-def money(v):
-    sign = "-" if v < 0 else ""
-    a = abs(v)
-    if a >= 1e7:
-        return f"{sign}₹{a / 1e7:,.2f} crore"
-    if a >= 1e5:
-        return f"{sign}₹{a / 1e5:,.1f} lakh"
-    return f"{sign}₹{a:,.0f}"
-
-
-def out_amount(unit, amount):
-    if unit == "kWh":
-        return f"{amount / 1000:,.0f} MWh"
-    if unit == "kg":
-        return f"{amount / 1000:,.0f} t"
-    if unit == "L":
-        return f"{amount / 1000:,.0f} kL"
-    return f"{amount:,.0f} t"
-
-
-
+st.set_page_config(page_title="Biorefinery Pathway Optimizer", page_icon="🌾", layout="wide")
 
 # =====================================================================
 # DATA LEGEND   [C] cited from a source   [D] derived from cited values
@@ -159,7 +22,7 @@ FEEDSTOCKS = {
         ret_c=0.45,        # [C] 45 % of straw carbon retained in biochar (Bioresour. Technol. 155, 2014)
         etoh_l=143.0,      # [C/D] IOCL Panipat: 2.1 lakh t dry straw -> 3 crore L (ThePrint)
         cbg_kg=105.0,      # [D] Sangrur plant: 33 t/day CBG from 1.1 lakh t straw/yr; 8-9 t straw per t CBG
-        power_capex_mw=7.44e7,   # [C] ₹per MW, rice-straw air-cooled (CERC proposal 2026)
+        power_capex_mw=7.44e7,   # [C] Rs per MW, rice-straw air-cooled (CERC proposal 2026)
     ),
     "Sugarcane bagasse": dict(
         hhv=17.9,          # [C] MJ/kg dry (17.88 +/- 0.48)
@@ -168,7 +31,7 @@ FEEDSTOCKS = {
         ret_c=0.35,        # [A]
         etoh_l=174.0,      # [D] rice-straw yield scaled by carbohydrate fraction (0.51 vs 0.42 L/kg theoretical)
         cbg_kg=None,       # no reliable data yet
-        power_capex_mw=6.38e7,   # [C] ₹per MW, biomass Rankine (lower end, CERC proposal 2026)
+        power_capex_mw=6.38e7,   # [C] Rs per MW, biomass Rankine (lower end, CERC proposal 2026)
     ),
 }
 
@@ -177,14 +40,14 @@ GRID_EF = 0.727          # [C] kg CO2/kWh, CEA CO2 Baseline Database v20, FY2023
 COAL_EF = 94.6           # [C] kg CO2/GJ, IPCC 2006 default (bituminous coal)
 CH4_CO2 = 2.75 * 0.95    # [D] kg CO2 per kg CBG (stoichiometry, CBG >= 95 % methane)
 ETOH_AVOIDED = 0.66 * 2.31   # [D] kg CO2 per L ethanol (0.66 L petrol-equivalent x 2.31 kg CO2/L)
-PELLET_BENCH = 2.27      # [C] ₹per 1000 kcal, MoP benchmark price, northern region, ex-GST
+PELLET_BENCH = 2.27      # [C] Rs per 1000 kcal, MoP benchmark price, northern region, ex-GST
 SHR = 4000.0             # [C] kcal/kWh station heat rate, regulator norm
 AUX = 0.10               # [C] auxiliary consumption, regulator norm
-OM_POWER_MW = 5.47e6     # [C] ₹per MW per year, CERC 2024 O&M norm (FY2024-25)
+OM_POWER_MW = 5.47e6     # [C] Rs per MW per year, CERC 2024 O&M norm (FY2024-25)
 PLF = 0.80               # [C] plant load factor norm
-ETOH_PRICE = 66.61       # [C] ₹/L weighted average ex-mill price, ESY 2025-26 (range 57.97-71.86)
-CBG_PRICE = 54.0         # [C] ₹/kg SATAT price slab (minimum guaranteed 46 ₹/kg to 2029)
-POWER_TARIFF = 5.22      # [C] ₹/kWh, PSERC approved biomass plant tariff FY2025-26 (CERC generic proposals: 9.6-11.6)
+ETOH_PRICE = 66.61       # [C] Rs/L weighted average ex-mill price, ESY 2025-26 (range 57.97-71.86)
+CBG_PRICE = 54.0         # [C] Rs/kg SATAT price slab (minimum guaranteed 46 Rs/kg to 2029)
+POWER_TARIFF = 5.22      # [C] Rs/kWh, PSERC approved biomass plant tariff FY2025-26 (CERC generic proposals: 9.6-11.6)
 
 
 def crf(rate, years):
@@ -200,12 +63,12 @@ def build_pathways(feed):
     y = 0.90                                      # [D] 1.05-1.15 t feed per t pellet (PelletRates)
     rows.append(dict(
         Pathway="Pelletization", Goal="Heat / power", Product="Pellets", Unit="t", Yield=y,
-        Price=PELLET_BENCH * hhv_kcal,            # [C] benchmark ₹/1000 kcal x calorific value
-        Capex=1e7 / (6000 / y),                   # [C] ₹1 crore per tonne/hour plant (DownToEarth); 6000 h/yr [A]
+        Price=PELLET_BENCH * hhv_kcal,            # [C] benchmark Rs/1000 kcal x calorific value
+        Capex=1e7 / (6000 / y),                   # [C] Rs 1 crore per tonne/hour plant (DownToEarth); 6000 h/yr [A]
         Opex=1200.0,                              # [A] power 90-150 kWh/t pellet + labour + maintenance
         Avoided=y * f["hhv"] * COAL_EF,           # [D] cross-check: NTPC reports 1,283 kg CO2 per t pellet
         ProcEmis=y * 102,                         # [C] NTPC: 63-102 kg CO2 per t pellet (upper value)
-        Basis="Price = MoP benchmark ₹2.27 per 1000 kcal x calorific value. Capex ₹1 crore per t/h. "
+        Basis="Price = MoP benchmark Rs 2.27 per 1000 kcal x calorific value. Capex Rs 1 crore per t/h. "
               "Avoided CO2 = pellet energy x coal factor (NTPC reports 1,283 kg/t). Opex is an assumption."))
 
     # 2. Combustion for power -------------------------------------------
@@ -225,15 +88,15 @@ def build_pathways(feed):
     # 3. Anaerobic digestion -> CBG (rice straw only) ---------------------
     if f["cbg_kg"]:
         cbg_t_per_day_feed = (1000 / f["cbg_kg"]) * 330
-        capex = 6.5e7 / cbg_t_per_day_feed        # [C] ₹6-7 crore per tonne/day CBG, paddy straw (CSE)
+        capex = 6.5e7 / cbg_t_per_day_feed        # [C] Rs 6-7 crore per tonne/day CBG, paddy straw (CSE)
         rows.append(dict(
             Pathway="Anaerobic digestion (CBG)", Goal="Gaseous fuel", Product="CBG", Unit="kg", Yield=f["cbg_kg"],
             Price=CBG_PRICE, Capex=capex, Opex=0.05 * capex,     # O&M 5 % of capex [A]
-            Coprod=1.75 * 1000 * 3.0 * 0.5,       # manure: 1.75 t/t straw [C], ₹3/kg [C], 50 % sold [A]
+            Coprod=1.75 * 1000 * 3.0 * 0.5,       # manure: 1.75 t/t straw [C], Rs 3/kg [C], 50 % sold [A]
             Avoided=f["cbg_kg"] * CH4_CO2,
             ProcEmis=40.0,                        # [A]
             Basis="Yield from the Sangrur paddy-straw plant (about 100-110 kg CBG per t). Price = SATAT slab. "
-                  "Capex ₹6.5 crore per t/day CBG. Manure (FOM) income: 1.75 t per t straw x ₹3/kg x 50 % sold (assumption)."))
+                  "Capex Rs 6.5 crore per t/day CBG. Manure (FOM) income: 1.75 t per t straw x Rs 3/kg x 50 % sold (assumption)."))
 
     # 4. Slow pyrolysis -> biochar ------------------------------------------
     stored = f["c_frac"] * f["ret_c"] * 44 / 12 * 1000 * 0.80   # kg CO2e per t feed; 80 % permanence [A]
@@ -241,16 +104,16 @@ def build_pathways(feed):
         Pathway="Slow pyrolysis (biochar)", Goal="Soil / carbon storage", Product="Biochar", Unit="t",
         Yield=f["biochar_yield"], Price=12000.0, Capex=0.0, Opex=2500.0,
         Avoided=stored, ProcEmis=60.0,
-        Basis="Yield from literature. Price: no reliable Indian market price (assumption). Cost about ₹2,500 per t "
+        Basis="Yield from literature. Price: no reliable Indian market price (assumption). Cost about Rs 2,500 per t "
               "residue (Vietnam study, low confidence). Stored carbon = C fraction x retained share x 80 % permanence."))
 
     # 5. Cellulosic (2G) ethanol -----------------------------------------------
-    capex = 9e9 / 210000                          # [C] IOCL Panipat: over ₹900 crore, 2.1 lakh t/yr
+    capex = 9e9 / 210000                          # [C] IOCL Panipat: over Rs 900 crore, 2.1 lakh t/yr
     rows.append(dict(
         Pathway="Cellulosic ethanol (2G)", Goal="Liquid fuel", Product="Ethanol", Unit="L", Yield=f["etoh_l"],
         Price=ETOH_PRICE, Capex=capex, Opex=0.05 * capex,        # O&M 5 % of capex [A]; enzymes not included
         Avoided=f["etoh_l"] * ETOH_AVOIDED, ProcEmis=150.0,      # [A]
-        Basis="Yield and capex from the IOCL Panipat 2G plant (over ₹900 crore, 2.1 lakh t straw -> 3 crore L). "
+        Basis="Yield and capex from the IOCL Panipat 2G plant (over Rs 900 crore, 2.1 lakh t straw -> 3 crore L). "
               "Price = weighted average ex-mill ethanol price ESY 2025-26. Enzyme and chemical costs not included."))
     out = pd.DataFrame(rows)
     mass_t = {"Pelletization": lambda y: y, "Combustion for power": lambda y: 0.0,   # power goes to the grid
@@ -263,50 +126,50 @@ def build_pathways(feed):
     return out
 
 
-
-
-
 # =====================================================================
-# SIDEBAR  (inputs)
+# SIDEBAR
 # =====================================================================
+st.title("🌾 Biorefinery Pathway Optimizer")
+st.caption("Compares conversion pathways for crop residues by profit and CO2 avoided, "
+           "using Indian prices and plant data from published sources. Values are tagged cited / derived / assumption.")
+
 with st.sidebar:
-    st.markdown('<div class="brand">Biorefinery Pathway Optimizer</div>'
-                '<div class="brand-sub">Choose a residue and your goals. Results update as you change anything.</div>',
-                unsafe_allow_html=True)
-    st.markdown('<div class="sb-h">Your residue</div>', unsafe_allow_html=True)
+    st.header("1. Your inputs")
     feed = st.selectbox("Crop residue", list(FEEDSTOCKS.keys()))
-    qty = st.number_input("Quantity (tonnes dry residue per year)", min_value=1.0, value=1000.0, step=100.0)
-    feed_cost = st.number_input("Delivered residue cost (₹ per tonne)", min_value=0.0, value=3000.0, step=100.0,
-                                help="Collection, transport and storage about ₹3,000/t (Verbio, via Mongabay). "
-                                     "IOCL pays ₹1,800/t at the depot (ThePrint).")
+    qty = st.number_input("Quantity (tonnes dry residue / year)", min_value=1.0, value=1000.0, step=100.0)
+    feed_cost = st.number_input("Delivered residue cost (Rs per tonne)", min_value=0.0, value=3000.0, step=100.0,
+                                help="Collection, transport and storage about Rs 3,000/t (Verbio, via Mongabay). "
+                                     "IOCL pays Rs 1,800/t at the depot (ThePrint).")
     dist = st.number_input("Distance to buyer (km)", min_value=0, value=100, step=50,
                            help="Heavy products (pellets, biochar) cost more to ship than gas, ethanol or electricity, "
-                                "so distance can change the best route.")
-    st.markdown('<div class="sb-h">Your goals</div>', unsafe_allow_html=True)
+                                "so distance can change the best pathway.")
     goals_all = ["Heat / power", "Gaseous fuel", "Liquid fuel", "Soil / carbon storage"]
     goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
-    w = st.slider("Priority: CO₂ first ... profit first", 0, 100, 50,
-                  help="0 = only CO₂ avoided matters, 100 = only profit matters")
-    st.markdown('<div class="sb-h">Advanced</div>', unsafe_allow_html=True)
-    with st.expander("Financial assumptions"):
+    st.header("2. Your priority")
+    w = st.slider("CO2 avoided  <-->  Profit", 0, 100, 50, help="0 = only CO2 matters, 100 = only profit matters")
+    cap_pct = st.slider("Max share of residue to any one pathway (%)", 20, 100, 40, step=10,
+                        help="Used by the Optimization tab. No single route can absorb all residue in practice "
+                             "(plant capacity, market demand). Assumption, change it freely.")
+
+    with st.expander("3. Financial assumptions"):
         rate = st.number_input("Discount rate (%)", value=10.0, step=0.5) / 100
         life = st.number_input("Project life (years)", value=20, step=1)
-        freight = st.number_input("Road freight (₹ per tonne-km)", value=3.78, step=0.1,
-                                  help="Government-commissioned NCAER study: about ₹3.78 per tonne-km by road (other estimates ₹1.8-2.8 for full truck loads).")
-        usd = st.number_input("₹ per US dollar", value=85.0, step=1.0)
-        credit = st.number_input("Carbon credit for biochar (US$ per t CO₂e)", value=0.0, step=10.0,
-                                 help="Voluntary biochar credits have traded at roughly US$100-300 per t CO₂e (PelletRates, 2026).")
+        freight = st.number_input("Road freight (Rs per tonne-km)", value=3.78, step=0.1,
+                                  help="Government-commissioned NCAER study: about Rs 3.78 per tonne-km by road (other estimates Rs 1.8-2.8 for full truck loads).")
+        usd = st.number_input("Rs per US dollar", value=85.0, step=1.0)
+        credit = st.number_input("Carbon credit for biochar (US$ per t CO2e)", value=0.0, step=10.0,
+                                 help="Voluntary biochar credits have traded at roughly US$100-300 per t CO2e (PelletRates, 2026).")
 
 base = build_pathways(feed)
 
 with st.sidebar:
-    with st.expander("Edit prices and costs"):
+    with st.expander("4. Edit prices and costs"):
         pr, cx, ox = [], [], []
         for _, r in base.iterrows():
             st.markdown(f"**{r['Pathway']}**")
-            pr.append(st.number_input(f"Price (₹ per {r['Unit']})", value=float(round(r["Price"], 2)), key=f"{feed}{r['Pathway']}p"))
-            cx.append(st.number_input("Capex (₹ per annual t residue)", value=float(round(r["Capex"], 0)), key=f"{feed}{r['Pathway']}c"))
-            ox.append(st.number_input("Operating cost (₹ per t residue)", value=float(round(r["Opex"], 0)), key=f"{feed}{r['Pathway']}o"))
+            pr.append(st.number_input(f"Price (Rs per {r['Unit']})", value=float(round(r["Price"], 2)), key=f"{feed}{r['Pathway']}p"))
+            cx.append(st.number_input("Capex (Rs per annual t residue)", value=float(round(r["Capex"], 0)), key=f"{feed}{r['Pathway']}c"))
+            ox.append(st.number_input("Operating cost (Rs per t residue)", value=float(round(r["Opex"], 0)), key=f"{feed}{r['Pathway']}o"))
         base["Price"], base["Capex"], base["Opex"] = pr, cx, ox
 
 # =====================================================================
@@ -314,159 +177,77 @@ with st.sidebar:
 # =====================================================================
 df = base.copy()
 df["Revenue (Rs/t)"] = df["Yield"] * df["Price"] + df["Coprod"]
+# biochar carbon credit
 cred = ((df["Pathway"] == "Slow pyrolysis (biochar)") * df["Avoided"] / 1000 * credit * usd)
 df["Revenue (Rs/t)"] = df["Revenue (Rs/t)"] + cred
 df["Capital charge (Rs/t)"] = df["Capex"] * crf(rate, life)
 df["Transport (Rs/t)"] = df["ProdMass"] * dist * freight
-df["Profit (Rs/t)"] = (df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost - df["Transport (Rs/t)"])
+df["Profit (Rs/t)"] = df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost - df["Transport (Rs/t)"]
 df["Net CO2 avoided (kg/t)"] = df["Avoided"] - df["ProcEmis"]
 df["Total profit (Rs lakh/yr)"] = df["Profit (Rs/t)"] * qty / 1e5
 df["Total CO2 avoided (t/yr)"] = df["Net CO2 avoided (kg/t)"] * qty / 1000
 df = df[df["Goal"].isin(goals)].reset_index(drop=True)
+
+if df.empty:
+    st.warning("Select at least one goal in the sidebar.")
+    st.stop()
 
 
 def norm(s):
     return pd.Series([1.0] * len(s)) if s.max() == s.min() else (s - s.min()) / (s.max() - s.min())
 
 
-# =====================================================================
-# HEADER
-# =====================================================================
-st.markdown('<h1 class="page-title">Which route turns crop residue into the most value?</h1>'
-            '<p class="page-sub">Compare conversion routes on profit and CO<sub>2</sub>, using Indian plant data and prices. '
-            'Change the inputs on the left and everything updates.</p>', unsafe_allow_html=True)
-
-if df.empty:
-    st.warning("Pick at least one goal in the sidebar to see results.")
-    st.stop()
-
 df["Score"] = (w / 100) * norm(df["Profit (Rs/t)"]) + (1 - w / 100) * norm(df["Net CO2 avoided (kg/t)"])
 df = df.sort_values("Score", ascending=False).reset_index(drop=True)
 df.insert(0, "Rank", range(1, len(df) + 1))
 best = df.iloc[0]
 
-# ---- hero -----------------------------------------------------------------
-top_profit = df["Profit (Rs/t)"].idxmax()
-top_co2 = df["Net CO2 avoided (kg/t)"].idxmax()
-if len(df) == 1:
-    why = "The only route that matches your goals."
-elif top_profit == 0 and top_co2 == 0:
-    why = "Leads on both profit and CO₂ avoided with your inputs."
-elif top_profit == 0:
-    why = f"Highest profit. {df.loc[top_co2, 'Pathway']} avoids more CO₂."
-elif top_co2 == 0:
-    why = f"Highest CO₂ benefit. {df.loc[top_profit, 'Pathway']} earns more."
-else:
-    why = "Best balance of profit and CO₂ at your priority."
-prod_label = best["Product"] if best["Product"] == "CBG" else best["Product"].lower()
-st.markdown(f"""
-<div class="hero">
-  <div>
-    <div class="hero-k">Best route for your goals</div>
-    <div class="hero-name">{best['Pathway']}</div>
-    <div class="hero-why">{why}</div>
-  </div>
-  <div class="hero-figs">
-    <div class="fig gold"><b>{money(best['Total profit (Rs lakh/yr)'] * 1e5)}</b><span>profit per year</span></div>
-    <div class="fig teal"><b>{best['Total CO2 avoided (t/yr)']:,.0f} t</b><span>CO<sub>2</sub> avoided per year</span></div>
-    <div class="fig"><b>{out_amount(best['Unit'], best['Yield'] * qty)}</b><span>{prod_label} per year</span></div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+tab1, tab2 = st.tabs(["Compare pathways", "Optimization"])
 
-tab1, tab2, tab3 = st.tabs(["Compare routes", "Optimize the mix", "Data and sources"])
-
-# =====================================================================
-# TAB 1  Compare routes
-# =====================================================================
 with tab1:
-    left, right = st.columns([5, 6], gap="large")
+    st.subheader(f"Results for {qty:,.0f} t/year of {feed.lower()}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Recommended pathway", best["Pathway"])
+    c2.metric("Profit", f"Rs {best['Total profit (Rs lakh/yr)']:,.1f} lakh/yr")
+    c3.metric("CO2 avoided", f"{best['Total CO2 avoided (t/yr)']:,.0f} t/yr")
+    if best["Profit (Rs/t)"] < 0:
+        st.info("Profit is negative with the current inputs for the recommended pathway.")
+    if len(df) > 1:
+        run = df.iloc[1]
+        note = f"Runner-up: {run['Pathway']} (score {run['Score']:.2f} vs {best['Score']:.2f})."
+        byp = df.sort_values("Profit (Rs/t)", ascending=False).reset_index(drop=True)
+        p1, p2 = byp.iloc[0], byp.iloc[1]
+        dm = (p1["ProdMass"] - p2["ProdMass"]) * freight
+        if dm > 0 and p1["Profit (Rs/t)"] > p2["Profit (Rs/t)"]:
+            reach = dist + (p1["Profit (Rs/t)"] - p2["Profit (Rs/t)"]) / dm
+            note += (f" On profit alone, {p1['Pathway']} stays ahead of {p2['Pathway']} up to about {reach:,.0f} km "
+                     "from the buyer.")
+        st.caption(note)
+
+    st.markdown("#### Ranked pathways")
+    show = df[["Rank", "Pathway", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
+    show["Yield"] = show["Yield"].round(2)
+    show["Profit (Rs/t)"] = show["Profit (Rs/t)"].round(0)
+    show["Net CO2 avoided (kg/t)"] = show["Net CO2 avoided (kg/t)"].round(0)
+    show["Score"] = show["Score"].round(2)
+    st.dataframe(show, width="stretch", hide_index=True)
+
+    left, right = st.columns(2)
     with left:
-        st.markdown('<div class="sec" style="margin-top:.2rem">Ranked for your priority</div>'
-                    '<div class="sec-sub">Longer bar means a better overall fit.</div>', unsafe_allow_html=True)
-        rows_html = ""
-        for _, r in df.iterrows():
-            col = PATH_COLOR[r["Pathway"]]
-            wbar = max(4, round(r["Score"] * 100))
-            rows_html += f"""
-<div class="rk-row {'best' if r['Rank'] == 1 else ''}">
-  <div class="rk-n">{int(r['Rank'])}</div>
-  <div>
-    <div class="rk-name"><span class="dot" style="background:{col}"></span>{r['Pathway']}<span class="rk-goal">{r['Goal']}</span></div>
-    <div class="rk-bar"><i style="width:{wbar}%;background:{col}"></i></div>
-    <div class="rk-fig"><b>{money(r['Profit (Rs/t)'])}</b> profit per t &nbsp;·&nbsp; <b>{r['Net CO2 avoided (kg/t)']:,.0f} kg</b> CO<sub>2</sub> avoided per t</div>
-  </div>
-</div>"""
-        st.markdown(f'<div class="rank">{rows_html}</div>', unsafe_allow_html=True)
-        if len(df) > 1:
-            run = df.iloc[1]
-            note = f"Runner-up: {run['Pathway']}."
-            byp = df.sort_values("Profit (Rs/t)", ascending=False).reset_index(drop=True)
-            p1, p2 = byp.iloc[0], byp.iloc[1]
-            dm = (p1["ProdMass"] - p2["ProdMass"]) * freight
-            if dm > 0 and p1["Profit (Rs/t)"] > p2["Profit (Rs/t)"]:
-                reach = dist + (p1["Profit (Rs/t)"] - p2["Profit (Rs/t)"]) / dm
-                note += (f" On profit alone, {p1['Pathway']} stays ahead of {p2['Pathway']} "
-                         f"up to about {reach:,.0f} km from the buyer.")
-            st.markdown(f'<div class="note">{note}</div>', unsafe_allow_html=True)
-
+        fig = px.scatter(df, x="Profit (Rs/t)", y="Net CO2 avoided (kg/t)", text="Pathway", color="Pathway",
+                         title="Trade-off: profit vs CO2 avoided (per tonne of residue)")
+        fig.update_traces(marker=dict(size=14), textposition="top center")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, width="stretch")
     with right:
-        st.markdown('<div class="sec" style="margin-top:.2rem">Profit against CO<sub>2</sub>, route by route</div>'
-                    '<div class="sec-sub">Gold bars show profit, teal bars show CO<sub>2</sub> avoided, both per tonne of residue.</div>',
-                    unsafe_allow_html=True)
-        d = df.iloc[::-1]
-        names = [SHORT[p] for p in d["Pathway"]]
-        fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.22,
-                            column_titles=["CO<sub>2</sub> avoided (kg per t)", "Profit (₹ per t)"])
-        fig.add_trace(go.Bar(y=names, x=d["Net CO2 avoided (kg/t)"], orientation="h", marker_color=TEAL,
-                             text=[f"{v:,.0f}" for v in d["Net CO2 avoided (kg/t)"]], textposition="outside", cliponaxis=False,
-                             hovertemplate="%{y}<br>%{x:,.0f} kg CO₂ per t<extra></extra>", showlegend=False), 1, 1)
-        fig.add_trace(go.Bar(y=names, x=d["Profit (Rs/t)"], orientation="h",
-                             marker_color=[STRAW if v >= 0 else LOSS for v in d["Profit (Rs/t)"]],
-                             text=[f"{v:,.0f}" for v in d["Profit (Rs/t)"]], textposition="outside", cliponaxis=False,
-                             hovertemplate="%{y}<br>₹%{x:,.0f} per t<extra></extra>", showlegend=False), 1, 2)
-        co2_max = max(d["Net CO2 avoided (kg/t)"].max(), 1)
-        pf_min, pf_max = min(d["Profit (Rs/t)"].min(), 0), max(d["Profit (Rs/t)"].max(), 1)
-        fig.update_xaxes(range=[co2_max * 1.3, 0], row=1, col=1)
-        fig.update_xaxes(range=[pf_min * 2.3 if pf_min < 0 else 0, pf_max * 1.3], row=1, col=2)
-        fig.update_xaxes(showticklabels=False)
-        fig.update_yaxes(side="right", row=1, col=1, tickfont=dict(size=13))   # route names sit in the gap between the panels
-        fig.update_layout(bargap=0.38)
-        style_fig(fig, height=max(300, 70 * len(d) + 90), margin=dict(l=10, r=40, t=50, b=10))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        fig2 = px.bar(df, x="Pathway", y="Score", color="Pathway", title="Overall score for your priority")
+        fig2.update_layout(showlegend=False)
+        st.plotly_chart(fig2, width="stretch")
 
-    st.markdown('<div class="sec">Where the money goes</div>'
-                '<div class="sec-sub">Pick a route to see how its sales turn into profit, per tonne of residue.</div>',
-                unsafe_allow_html=True)
-    pick = st.radio("Route", list(df["Pathway"]), horizontal=True, label_visibility="collapsed",
-                    format_func=lambda p: SHORT[p])
-    r = df[df["Pathway"] == pick].iloc[0]
-    wf = go.Figure(go.Waterfall(
-        orientation="v", measure=["relative"] * 5 + ["total"],
-        x=["Product sales", "Plant capital", "Operating cost", "Residue cost", "Transport", "Profit"],
-        y=[r["Revenue (Rs/t)"], -r["Capital charge (Rs/t)"], -r["Opex"], -feed_cost, -r["Transport (Rs/t)"], 0],
-        text=[f"₹{r['Revenue (Rs/t)']:,.0f}", f"-₹{r['Capital charge (Rs/t)']:,.0f}", f"-₹{r['Opex']:,.0f}",
-              f"-₹{feed_cost:,.0f}", f"-₹{r['Transport (Rs/t)']:,.0f}", f"₹{r['Profit (Rs/t)']:,.0f}"],
-        textposition="outside", cliponaxis=False,
-        increasing=dict(marker=dict(color=LEAF)), decreasing=dict(marker=dict(color=LOSS)),
-        totals=dict(marker=dict(color=INK)), connector=dict(line=dict(color="#9DB09F", width=1)),
-        hovertemplate="%{x}<br>₹%{y:,.0f}<extra></extra>"))
-    wf.update_layout(showlegend=False, yaxis_title="₹ per tonne of residue")
-    style_fig(wf, height=380, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(wf, width="stretch", config={"displayModeBar": False})
-    st.markdown(f'<div class="note"><b>How it is calculated:</b> {r["Basis"]}</div>', unsafe_allow_html=True)
 
-    with st.expander("See the full table"):
-        show = df[["Rank", "Pathway", "Goal", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
-        show = show.rename(columns={"Profit (Rs/t)": "Profit (₹/t)", "Net CO2 avoided (kg/t)": "CO₂ avoided (kg/t)"})
-        show["Yield"] = show["Yield"].round(2)
-        show["Profit (₹/t)"] = show["Profit (₹/t)"].round(0)
-        show["CO₂ avoided (kg/t)"] = show["CO₂ avoided (kg/t)"].round(0)
-        st.dataframe(show, width="stretch", hide_index=True,
-                     column_config={"Score": st.column_config.ProgressColumn("Score", min_value=0.0, max_value=1.0, format="%.2f")})
 
 # =====================================================================
-# TAB 2  Optimize the mix
+# OPTIMIZATION  (linear programming with SciPy, epsilon-constraint method)
 # =====================================================================
 def solve_lp(d, qty, cap, primary, co2_min=None, second=None):
     """Allocate residue tonnes x_i to pathways (linear program, SciPy HiGHS).
@@ -495,19 +276,14 @@ def solve_lp(d, qty, cap, primary, co2_min=None, second=None):
     return dict(x=xs.tolist(), profit=float(prof @ xs), co2=float(co2 @ xs))
 
 
-
 with tab2:
-    st.markdown('<div class="sec" style="margin-top:.2rem">Split the residue across routes</div>'
-                '<div class="sec-sub">A linear program decides how many tonnes go to each route. It maximizes profit while meeting a '
-                'CO<sub>2</sub> target (epsilon-constraint method, Mavrotas, 2009) and traces the trade-off curve.</div>',
-                unsafe_allow_html=True)
-    cap_pct = st.slider("Most residue any one route can take (%)", 20, 100, 40, step=10,
-                        help="No single route can absorb all residue in practice (plant capacity, market demand). "
-                             "This is an assumption. Change it freely.")
+    st.markdown("#### Split the residue across pathways")
+    st.caption("A linear program decides how many tonnes go to each pathway. It maximizes profit while meeting a CO2 target "
+               "(epsilon-constraint method, Mavrotas, 2009), and traces the profit-vs-CO2 trade-off curve.")
     cap = cap_pct / 100
     if cap * len(df) < 1:
-        st.warning("These routes cannot absorb all the residue at this limit. Some residue stays unused. "
-                   "Raise the limit or pick more goals.")
+        st.warning("The selected pathways cannot absorb all the residue at this cap. "
+                   "Some residue stays unused. Raise the cap or select more goals.")
     a = solve_lp(df, qty, cap, "profit", second="co2")
     b = solve_lp(df, qty, cap, "co2", second="profit")
     if a is None or b is None:
@@ -515,71 +291,58 @@ with tab2:
     else:
         co2_a, co2_b = a["co2"], b["co2"]
         if co2_b - co2_a < 1e-6:
-            st.success("No trade-off here: the most profitable split is also the best for CO₂.")
+            st.success("No trade-off here: the most profitable allocation is also the best for CO2.")
             chosen = a
         else:
             pts = []
             for k in range(9):
                 eps = co2_a + (co2_b - co2_a) * k / 8
-                rr = solve_lp(df, qty, cap, "profit", co2_min=eps - 1e-6)
-                if rr:
-                    pts.append(rr)
-            t = st.slider("Move along the trade-off curve", 0, 100, 50,
-                          help="0 = maximum profit, 100 = maximum CO₂ avoided")
+                r = solve_lp(df, qty, cap, "profit", co2_min=eps - 1e-6)
+                if r:
+                    pts.append(r)
+            t = st.slider("Choose a point on the trade-off curve", 0, 100, 50,
+                          help="0 = maximum profit, 100 = maximum CO2 avoided")
             eps_sel = co2_a + (co2_b - co2_a) * t / 100
             chosen = solve_lp(df, qty, cap, "profit", co2_min=eps_sel - 1e-6)
             fig3 = go.Figure()
             fig3.add_trace(go.Scatter(x=[p["profit"] / 1e5 for p in pts], y=[p["co2"] / 1000 for p in pts],
-                                      mode="lines+markers", name="Best possible splits", line=dict(color=LEAF, width=3),
-                                      marker=dict(size=9, color=LEAF),
-                                      hovertemplate="Profit ₹%{x:,.1f} lakh<br>%{y:,.0f} t CO₂<extra></extra>"))
-            fig3.add_trace(go.Scatter(x=[chosen["profit"] / 1e5], y=[chosen["co2"] / 1000], mode="markers", name="Your choice",
-                                      marker=dict(size=18, color=STRAW, line=dict(color=INK, width=2)),
-                                      hovertemplate="Profit ₹%{x:,.1f} lakh<br>%{y:,.0f} t CO₂<extra></extra>"))
-            fig3.update_layout(title="Trade-off curve", xaxis_title="Profit (₹ lakh per year)",
-                               yaxis_title="CO₂ avoided (t per year)", legend=dict(orientation="h", y=-0.2))
-            style_fig(fig3, height=380, margin=dict(l=10, r=10, t=50, b=10))
-            st.plotly_chart(fig3, width="stretch", config={"displayModeBar": False})
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Profit per year", money(chosen["profit"]))
-        m2.metric("CO₂ avoided per year", f"{chosen['co2'] / 1000:,.0f} t")
-        m3.metric("Residue used", f"{sum(chosen['x']):,.0f} of {qty:,.0f} t")
-        if sum(chosen["x"]) < qty - 1:
-            st.markdown(f'<div class="note">{qty - sum(chosen["x"]):,.0f} t of residue is left unprocessed: routes that lose money '
-                        'are skipped unless they are needed to reach the CO₂ target, or the limit on each route is reached.</div>',
-                        unsafe_allow_html=True)
+                                      mode="lines+markers", name="Pareto front"))
+            fig3.add_trace(go.Scatter(x=[chosen["profit"] / 1e5], y=[chosen["co2"] / 1000], mode="markers",
+                                      marker=dict(size=16, color="red"), name="Your choice"))
+            fig3.update_layout(title="Trade-off curve: profit vs CO2 avoided", xaxis_title="Profit (Rs lakh/yr)",
+                               yaxis_title="CO2 avoided (t/yr)")
+            st.plotly_chart(fig3, width="stretch")
 
         alloc = pd.DataFrame({
             "Pathway": df["Pathway"],
             "Residue allocated (t/yr)": [round(v, 1) for v in chosen["x"]],
             "Share (%)": [round(100 * v / qty, 1) for v in chosen["x"]],
-            "Profit (₹ lakh/yr)": [round(df.loc[i, "Profit (Rs/t)"] * chosen["x"][i] / 1e5, 2) for i in range(len(df))],
-            "CO₂ avoided (t/yr)": [round(df.loc[i, "Net CO2 avoided (kg/t)"] * chosen["x"][i] / 1000, 1) for i in range(len(df))],
+            "Profit (Rs lakh/yr)": [round(df.loc[i, "Profit (Rs/t)"] * chosen["x"][i] / 1e5, 2) for i in range(len(df))],
+            "CO2 avoided (t/yr)": [round(df.loc[i, "Net CO2 avoided (kg/t)"] * chosen["x"][i] / 1000, 1) for i in range(len(df))],
         })
         alloc = alloc[alloc["Residue allocated (t/yr)"] > 0.05].reset_index(drop=True)
-        st.markdown('<div class="sec">Recommended split</div>', unsafe_allow_html=True)
-        fb = go.Figure()
-        for _, rr in alloc.iterrows():
-            fb.add_trace(go.Bar(y=["Residue"], x=[rr["Residue allocated (t/yr)"]], orientation="h", name=SHORT[rr["Pathway"]],
-                                marker_color=PATH_COLOR[rr["Pathway"]],
-                                text=[f"{SHORT[rr['Pathway']]}<br>{rr['Share (%)']:.0f}%"], textposition="inside",
-                                insidetextanchor="middle", textfont=dict(color="#FFFFFF", size=13),
-                                hovertemplate=f"{rr['Pathway']}<br>%{{x:,.0f}} t<extra></extra>"))
-        fb.update_layout(barmode="stack", showlegend=False, xaxis_title="Tonnes of residue per year", bargap=0.2)
-        fb.update_yaxes(showticklabels=False)
-        style_fig(fb, height=190, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fb, width="stretch", config={"displayModeBar": False})
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total profit", f"Rs {chosen['profit'] / 1e5:,.1f} lakh/yr")
+        m2.metric("Total CO2 avoided", f"{chosen['co2'] / 1000:,.0f} t/yr")
+        m3.metric("Residue used", f"{sum(chosen['x']):,.0f} of {qty:,.0f} t")
+        if sum(chosen["x"]) < qty - 1:
+            st.caption(f"{qty - sum(chosen['x']):,.0f} t of residue is left unprocessed: routes that lose money are skipped "
+                       "unless they are needed to reach the CO2 target, or the cap on each pathway is reached.")
+        st.markdown("##### Recommended allocation")
         st.dataframe(alloc, width="stretch", hide_index=True)
-        st.download_button("Download this split (CSV)", alloc.to_csv(index=False), "residue_split.csv", "text/csv")
+        figb = px.bar(alloc, x="Pathway", y="Residue allocated (t/yr)", color="Pathway",
+                      title="How the residue is split")
+        figb.update_layout(showlegend=False)
+        st.plotly_chart(figb, width="stretch")
+        st.download_button("Download allocation (CSV)", alloc.to_csv(index=False), "allocation.csv", "text/csv")
 
 # =====================================================================
-# TAB 3  Data and sources
+# DATA BASIS
 # =====================================================================
-with tab3:
-    st.markdown('<div class="sec" style="margin-top:.2rem">Where the numbers come from</div>'
-                '<div class="sec-sub">Every value is tagged: cited (taken from a source), derived (calculated from cited values) '
-                'or assumption (a placeholder you can edit in the sidebar).</div>', unsafe_allow_html=True)
+with st.expander("How each pathway was calculated"):
+    st.dataframe(df[["Pathway", "Basis"]], width="stretch", hide_index=True)
+
+with st.expander("Verified data and sources"):
     st.markdown("""
 **Status key:** cited = taken from a source, derived = calculated from cited values, assumption = placeholder.
 
@@ -587,31 +350,28 @@ with tab3:
 |---|---|---|---|
 | Rice straw heating value | 14.6 MJ/kg dry | cited | Springer chapter on rice straw (range 14.08-15.09) |
 | Bagasse heating value | 17.9 MJ/kg dry | cited | Taylor & Francis bagasse entry (17.88 +/- 0.48) |
-| Pellet price | ₹2.27 per 1000 kcal (about ₹7,900/t) | cited | Ministry of Power benchmark; NTPC paid about ₹7,000/t in 2020 |
-| Pellet plant capex | ₹1 crore per t/h | cited | Down To Earth (government scheme assumes ₹35 lakh) |
+| Pellet price | Rs 2.27 per 1000 kcal (about Rs 7,900/t) | cited | Ministry of Power benchmark; NTPC paid about Rs 7,000/t in 2020 |
+| Pellet plant capex | Rs 1 crore per t/h | cited | Down To Earth (government scheme assumes Rs 35 lakh) |
 | Pellet CO2 factors | 1,283 kg avoided, 63-102 kg process per t pellet | cited | NTPC presentation, 2024 |
 | Station heat rate / auxiliary | 4,000 kcal/kWh, 10 % | cited | State regulator norms (2025) |
-| Biomass power capex | ₹6.38-7.44 crore/MW | cited | CERC generic tariff proposal, 2026 |
-| Biomass O&M | ₹54.7 lakh/MW/yr | cited | CERC RE regulations 2024 |
-| Biomass power tariff | ₹5.22/kWh (CERC generic proposals ₹9.6-11.6) | cited | PSERC order FY2025-26; Powerline, Aug 2026 |
+| Biomass power capex | Rs 6.38-7.44 crore/MW | cited | CERC generic tariff proposal, 2026 |
+| Biomass O&M | Rs 54.7 lakh/MW/yr | cited | CERC RE regulations 2024 |
+| Biomass power tariff | Rs 5.22/kWh (CERC generic proposals Rs 9.6-11.6) | cited | PSERC order FY2025-26; Powerline, Aug 2026 |
 | Grid emission factor | 0.727 t CO2/MWh | cited | CEA CO2 Baseline Database v20 |
 | CBG yield | about 105 kg/t straw | derived | Sangrur plant: 33 t/day from 1.1 lakh t/yr (Mongabay, 2023) |
-| CBG price | ₹54/kg (minimum ₹46/kg to 2029) | cited | SATAT / IOCL slab (IEA Task 37 presentation) |
-| CBG plant capex | ₹6.5 crore per t/day | cited | CSE national blueprint (₹6-7 crore) |
-| Road freight | ₹3.78 per tonne-km | cited | NCAER logistics cost study (reported by ThePrint) |
-| Biogas manure (FOM) | 1.75 t per t straw at ₹3/kg, 50 % assumed sold | cited / **assumption** | Mongabay (2023); CSE blueprint |
+| CBG price | Rs 54/kg (minimum Rs 46/kg to 2029) | cited | SATAT / IOCL slab (IEA Task 37 presentation) |
+| CBG plant capex | Rs 6.5 crore per t/day | cited | CSE national blueprint (Rs 6-7 crore) |
+| Road freight | Rs 3.78 per tonne-km | cited | NCAER logistics cost study (reported by ThePrint) |
+| Biogas manure (FOM) | 1.75 t per t straw at Rs 3/kg, 50 % assumed sold | cited / **assumption** | Mongabay (2023); CSE blueprint |
 | 2G ethanol yield | 143 L/t dry straw | cited | ThePrint: 2.1 lakh t straw -> 3 crore L |
-| 2G plant capex | over ₹900 crore | cited | IOCL Panipat (PIB, ICIS) |
-| Ethanol price | ₹66.61/L | cited | Weighted average ex-mill price ESY 2025-26 (Lok Sabha reply) |
+| 2G plant capex | over Rs 900 crore | cited | IOCL Panipat (PIB, ICIS) |
+| Ethanol price | Rs 66.61/L | cited | Weighted average ex-mill price ESY 2025-26 (Lok Sabha reply) |
 | Biochar yield, carbon retention | 38 %, 45 % | cited / derived | SBJChem 2018; Bioresource Technology 155 (2014) |
-| Biochar price and cost | ₹12,000/t, ₹2,500/t residue | **assumption** | No reliable Indian price found; cost from a Vietnam study |
-| Pellet operating cost, CBG/ethanol O&M | ₹1,200/t, 5 % of capex | **assumption** | To be replaced with plant data when available |
-| Delivered residue cost | ₹3,000/t | cited | Verbio (Mongabay); IOCL pays ₹1,800/t at depot |
+| Biochar price and cost | Rs 12,000/t, Rs 2,500/t residue | **assumption** | No reliable Indian price found; cost from a Vietnam study |
+| Pellet operating cost, CBG/ethanol O&M | Rs 1,200/t, 5 % of capex | **assumption** | To be replaced with plant data when available |
+| Delivered residue cost | Rs 3,000/t | cited | Verbio (Mongabay); IOCL pays Rs 1,800/t at depot |
 
 **Cross-checks:** the model's rice-straw ethanol yield reproduces IOCL Panipat, and the biogas lab range (92-280 L CH4/kg VS) gives about 118 kg CH4/t, consistent with the 105 kg CBG/t seen at Sangrur.
 
 **Not yet included:** open-burning baseline (about 1,168 kg CO2 per t straw burnt; Smith et al.), enzyme costs, subsidies (for example capital grants for pellet plants and CBG plants).
 """)
-    st.markdown('<div class="sec">How each route is calculated</div>', unsafe_allow_html=True)
-    for _, r in df.sort_values("Pathway").iterrows():
-        st.markdown(f"**{r['Pathway']}.** {r['Basis']}")
