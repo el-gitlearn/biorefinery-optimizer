@@ -116,6 +116,10 @@ def build_pathways(feed):
         Basis="Yield and capex from the IOCL Panipat 2G plant (over Rs 900 crore, 2.1 lakh t straw -> 3 crore L). "
               "Price = weighted average ex-mill ethanol price ESY 2025-26. Enzyme and chemical costs not included."))
     out = pd.DataFrame(rows)
+    mass_t = {"Pelletization": lambda y: y, "Combustion for power": lambda y: 0.0,   # power goes to the grid
+              "Anaerobic digestion (CBG)": lambda y: y / 1000, "Slow pyrolysis (biochar)": lambda y: y,
+              "Cellulosic ethanol (2G)": lambda y: y * 0.789 / 1000}
+    out["ProdMass"] = [mass_t[p](y) for p, y in zip(out["Pathway"], out["Yield"])]   # tonnes of product per t residue
     if "Coprod" not in out:
         out["Coprod"] = 0.0
     out["Coprod"] = out["Coprod"].fillna(0.0)
@@ -136,6 +140,9 @@ with st.sidebar:
     feed_cost = st.number_input("Delivered residue cost (Rs per tonne)", min_value=0.0, value=3000.0, step=100.0,
                                 help="Collection, transport and storage about Rs 3,000/t (Verbio, via Mongabay). "
                                      "IOCL pays Rs 1,800/t at the depot (ThePrint).")
+    dist = st.number_input("Distance to buyer (km)", min_value=0, value=100, step=50,
+                           help="Heavy products (pellets, biochar) cost more to ship than gas, ethanol or electricity, "
+                                "so distance can change the best pathway.")
     goals_all = ["Heat / power", "Gaseous fuel", "Liquid fuel", "Soil / carbon storage"]
     goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
     st.header("2. Your priority")
@@ -147,6 +154,8 @@ with st.sidebar:
     with st.expander("3. Financial assumptions"):
         rate = st.number_input("Discount rate (%)", value=10.0, step=0.5) / 100
         life = st.number_input("Project life (years)", value=20, step=1)
+        freight = st.number_input("Road freight (Rs per tonne-km)", value=3.78, step=0.1,
+                                  help="Government-commissioned NCAER study: about Rs 3.78 per tonne-km by road (other estimates Rs 1.8-2.8 for full truck loads).")
         usd = st.number_input("Rs per US dollar", value=85.0, step=1.0)
         credit = st.number_input("Carbon credit for biochar (US$ per t CO2e)", value=0.0, step=10.0,
                                  help="Voluntary biochar credits have traded at roughly US$100-300 per t CO2e (PelletRates, 2026).")
@@ -172,7 +181,8 @@ df["Revenue (Rs/t)"] = df["Yield"] * df["Price"] + df["Coprod"]
 cred = ((df["Pathway"] == "Slow pyrolysis (biochar)") * df["Avoided"] / 1000 * credit * usd)
 df["Revenue (Rs/t)"] = df["Revenue (Rs/t)"] + cred
 df["Capital charge (Rs/t)"] = df["Capex"] * crf(rate, life)
-df["Profit (Rs/t)"] = df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost
+df["Transport (Rs/t)"] = df["ProdMass"] * dist * freight
+df["Profit (Rs/t)"] = df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost - df["Transport (Rs/t)"]
 df["Net CO2 avoided (kg/t)"] = df["Avoided"] - df["ProcEmis"]
 df["Total profit (Rs lakh/yr)"] = df["Profit (Rs/t)"] * qty / 1e5
 df["Total CO2 avoided (t/yr)"] = df["Net CO2 avoided (kg/t)"] * qty / 1000
@@ -202,6 +212,17 @@ with tab1:
     c3.metric("CO2 avoided", f"{best['Total CO2 avoided (t/yr)']:,.0f} t/yr")
     if best["Profit (Rs/t)"] < 0:
         st.info("Profit is negative with the current inputs for the recommended pathway.")
+    if len(df) > 1:
+        run = df.iloc[1]
+        note = f"Runner-up: {run['Pathway']} (score {run['Score']:.2f} vs {best['Score']:.2f})."
+        byp = df.sort_values("Profit (Rs/t)", ascending=False).reset_index(drop=True)
+        p1, p2 = byp.iloc[0], byp.iloc[1]
+        dm = (p1["ProdMass"] - p2["ProdMass"]) * freight
+        if dm > 0 and p1["Profit (Rs/t)"] > p2["Profit (Rs/t)"]:
+            reach = dist + (p1["Profit (Rs/t)"] - p2["Profit (Rs/t)"]) / dm
+            note += (f" On profit alone, {p1['Pathway']} stays ahead of {p2['Pathway']} up to about {reach:,.0f} km "
+                     "from the buyer.")
+        st.caption(note)
 
     st.markdown("#### Ranked pathways")
     show = df[["Rank", "Pathway", "Product", "Yield", "Unit", "Profit (Rs/t)", "Net CO2 avoided (kg/t)", "Score"]].copy()
@@ -340,6 +361,7 @@ with st.expander("Verified data and sources"):
 | CBG yield | about 105 kg/t straw | derived | Sangrur plant: 33 t/day from 1.1 lakh t/yr (Mongabay, 2023) |
 | CBG price | Rs 54/kg (minimum Rs 46/kg to 2029) | cited | SATAT / IOCL slab (IEA Task 37 presentation) |
 | CBG plant capex | Rs 6.5 crore per t/day | cited | CSE national blueprint (Rs 6-7 crore) |
+| Road freight | Rs 3.78 per tonne-km | cited | NCAER logistics cost study (reported by ThePrint) |
 | Biogas manure (FOM) | 1.75 t per t straw at Rs 3/kg, 50 % assumed sold | cited / **assumption** | Mongabay (2023); CSE blueprint |
 | 2G ethanol yield | 143 L/t dry straw | cited | ThePrint: 2.1 lakh t straw -> 3 crore L |
 | 2G plant capex | over Rs 900 crore | cited | IOCL Panipat (PIB, ICIS) |
