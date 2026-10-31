@@ -132,6 +132,10 @@ def money(v):
     return f"{sign}₹{a:,.0f}"
 
 
+def neg(v):
+    return "₹0" if abs(v) < 0.5 else f"-₹{abs(v):,.0f}"
+
+
 def out_amount(unit, amount):
     if unit == "kWh":
         return f"{amount / 1000:,.0f} MWh"
@@ -185,6 +189,9 @@ PLF = 0.80               # [C] plant load factor norm
 ETOH_PRICE = 66.61       # [C] ₹/L weighted average ex-mill price, ESY 2025-26 (range 57.97-71.86)
 CBG_PRICE = 54.0         # [C] ₹/kg SATAT price slab (minimum guaranteed 46 ₹/kg to 2029)
 POWER_TARIFF = 5.22      # [C] ₹/kWh, PSERC approved biomass plant tariff FY2025-26 (CERC generic proposals: 9.6-11.6)
+
+
+DISCOUNT_RATE, PROJECT_LIFE = 0.10, 20   # [A] used for the plant capital charge
 
 
 def crf(rate, years):
@@ -288,14 +295,14 @@ with st.sidebar:
     w = st.slider("Priority: CO₂ first ... profit first", 0, 100, 50,
                   help="0 = only CO₂ avoided matters, 100 = only profit matters")
     st.markdown('<div class="sb-h">Advanced</div>', unsafe_allow_html=True)
-    with st.expander("Financial assumptions"):
-        rate = st.number_input("Discount rate (%)", value=10.0, step=0.5) / 100
-        life = st.number_input("Project life (years)", value=20, step=1)
-        freight = st.number_input("Road freight (₹ per tonne-km)", value=3.78, step=0.1,
-                                  help="Government-commissioned NCAER study: about ₹3.78 per tonne-km by road (other estimates ₹1.8-2.8 for full truck loads).")
-        usd = st.number_input("₹ per US dollar", value=85.0, step=1.0)
-        credit = st.number_input("Carbon credit for biochar (US$ per t CO₂e)", value=0.0, step=10.0,
-                                 help="Voluntary biochar credits have traded at roughly US$100-300 per t CO₂e (PelletRates, 2026).")
+    with st.expander("Expenses, transport and tax"):
+        extra = st.number_input("Your other expenses (₹ per tonne of residue)", min_value=0.0, value=0.0, step=100.0,
+                                help="Anything else you pay, such as labour, storage or handling. Subtracted from profit.")
+        freight = st.number_input("Transport charges (₹ per tonne-km)", min_value=0.0, value=3.78, step=0.1,
+                                  help="Multiplied by the distance to the buyer and the weight of product shipped. "
+                                       "Default: about ₹3.78 per tonne-km by road (NCAER study).")
+        tax = st.number_input("Tax (% of profit, if any)", min_value=0.0, max_value=60.0, value=0.0, step=1.0,
+                              help="Applied only when profit is positive. Leave at 0 if there is no tax.")
 
 base = build_pathways(feed)
 
@@ -314,11 +321,13 @@ with st.sidebar:
 # =====================================================================
 df = base.copy()
 df["Revenue (Rs/t)"] = df["Yield"] * df["Price"] + df["Coprod"]
-cred = ((df["Pathway"] == "Slow pyrolysis (biochar)") * df["Avoided"] / 1000 * credit * usd)
-df["Revenue (Rs/t)"] = df["Revenue (Rs/t)"] + cred
-df["Capital charge (Rs/t)"] = df["Capex"] * crf(rate, life)
+df["Capital charge (Rs/t)"] = df["Capex"] * crf(DISCOUNT_RATE, PROJECT_LIFE)
 df["Transport (Rs/t)"] = df["ProdMass"] * dist * freight
-df["Profit (Rs/t)"] = (df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost - df["Transport (Rs/t)"])
+df["Other expenses (Rs/t)"] = extra
+pre_tax = (df["Revenue (Rs/t)"] - df["Capital charge (Rs/t)"] - df["Opex"] - feed_cost
+           - df["Transport (Rs/t)"] - df["Other expenses (Rs/t)"])
+df["Tax (Rs/t)"] = pre_tax.clip(lower=0) * tax / 100
+df["Profit (Rs/t)"] = pre_tax - df["Tax (Rs/t)"]
 df["Net CO2 avoided (kg/t)"] = df["Avoided"] - df["ProcEmis"]
 df["Total profit (Rs lakh/yr)"] = df["Profit (Rs/t)"] * qty / 1e5
 df["Total CO2 avoided (t/yr)"] = df["Net CO2 avoided (kg/t)"] * qty / 1000
@@ -374,7 +383,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["Compare routes", "Optimize the mix", "Data and sources"])
+tab1, tab2 = st.tabs(["Compare routes", "Optimize the mix"])
 
 # =====================================================================
 # TAB 1  Compare routes
@@ -442,11 +451,13 @@ with tab1:
                     format_func=lambda p: SHORT[p])
     r = df[df["Pathway"] == pick].iloc[0]
     wf = go.Figure(go.Waterfall(
-        orientation="v", measure=["relative"] * 5 + ["total"],
-        x=["Product sales", "Plant capital", "Operating cost", "Residue cost", "Transport", "Profit"],
-        y=[r["Revenue (Rs/t)"], -r["Capital charge (Rs/t)"], -r["Opex"], -feed_cost, -r["Transport (Rs/t)"], 0],
-        text=[f"₹{r['Revenue (Rs/t)']:,.0f}", f"-₹{r['Capital charge (Rs/t)']:,.0f}", f"-₹{r['Opex']:,.0f}",
-              f"-₹{feed_cost:,.0f}", f"-₹{r['Transport (Rs/t)']:,.0f}", f"₹{r['Profit (Rs/t)']:,.0f}"],
+        orientation="v", measure=["relative"] * 7 + ["total"],
+        x=["Product sales", "Plant capital", "Operating cost", "Residue cost", "Transport", "Your expenses", "Tax", "Profit"],
+        y=[r["Revenue (Rs/t)"], -r["Capital charge (Rs/t)"], -r["Opex"], -feed_cost, -r["Transport (Rs/t)"],
+           -r["Other expenses (Rs/t)"], -r["Tax (Rs/t)"], 0],
+        text=[f"₹{r['Revenue (Rs/t)']:,.0f}", neg(r['Capital charge (Rs/t)']), neg(r['Opex']),
+              neg(feed_cost), neg(r['Transport (Rs/t)']), neg(r['Other expenses (Rs/t)']),
+              neg(r['Tax (Rs/t)']), f"₹{r['Profit (Rs/t)']:,.0f}"],
         textposition="outside", cliponaxis=False,
         increasing=dict(marker=dict(color=LEAF)), decreasing=dict(marker=dict(color=LOSS)),
         totals=dict(marker=dict(color=INK)), connector=dict(line=dict(color="#9DB09F", width=1)),
@@ -574,12 +585,10 @@ with tab2:
         st.download_button("Download this split (CSV)", alloc.to_csv(index=False), "residue_split.csv", "text/csv")
 
 # =====================================================================
-# TAB 3  Data and sources
+# BOTTOM OF PAGE  data, sources and method
 # =====================================================================
-with tab3:
-    st.markdown('<div class="sec" style="margin-top:.2rem">Where the numbers come from</div>'
-                '<div class="sec-sub">Every value is tagged: cited (taken from a source), derived (calculated from cited values) '
-                'or assumption (a placeholder you can edit in the sidebar).</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec" style="margin-top:2.4rem">Behind the numbers</div>', unsafe_allow_html=True)
+with st.expander("Verified data and sources"):
     st.markdown("""
 **Status key:** cited = taken from a source, derived = calculated from cited values, assumption = placeholder.
 
@@ -606,12 +615,16 @@ with tab3:
 | Biochar yield, carbon retention | 38 %, 45 % | cited / derived | SBJChem 2018; Bioresource Technology 155 (2014) |
 | Biochar price and cost | ₹12,000/t, ₹2,500/t residue | **assumption** | No reliable Indian price found; cost from a Vietnam study |
 | Pellet operating cost, CBG/ethanol O&M | ₹1,200/t, 5 % of capex | **assumption** | To be replaced with plant data when available |
+| Capital charge on plant cost | 10 % discount rate over 20 years | **assumption** | Standard project-finance convention |
 | Delivered residue cost | ₹3,000/t | cited | Verbio (Mongabay); IOCL pays ₹1,800/t at depot |
 
 **Cross-checks:** the model's rice-straw ethanol yield reproduces IOCL Panipat, and the biogas lab range (92-280 L CH4/kg VS) gives about 118 kg CH4/t, consistent with the 105 kg CBG/t seen at Sangrur.
 
 **Not yet included:** open-burning baseline (about 1,168 kg CO2 per t straw burnt; Smith et al.), enzyme costs, subsidies (for example capital grants for pellet plants and CBG plants).
 """)
-    st.markdown('<div class="sec">How each route is calculated</div>', unsafe_allow_html=True)
+
+with st.expander("How each pathway was calculated"):
     for _, r in df.sort_values("Pathway").iterrows():
         st.markdown(f"**{r['Pathway']}.** {r['Basis']}")
+    st.markdown("**Profit** = product sales - plant capital charge - operating cost - residue cost - transport charges - "
+                "your other expenses - tax. Tax is charged only on positive profit.")
