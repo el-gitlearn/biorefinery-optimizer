@@ -148,6 +148,83 @@ div[role="radiogroup"] label:hover { border-color: var(--leaf); }
 [data-testid="stSidebar"] [data-testid="stExpander"] { background: #FFFFFF; }
 @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
 
+
+/* ================= bolder premium layer ================= */
+.stApp { background:
+  radial-gradient(900px 520px at 88% -8%, #DFEBD5 0%, rgba(223,235,213,0) 62%),
+  radial-gradient(760px 460px at -4% 34%, #F2EBD3 0%, rgba(242,235,211,0) 58%),
+  #F5F8F2; }
+.page-title { font-size: clamp(2.1rem, 4.2vw, 3.3rem); max-width: 25ch; letter-spacing: -0.025em; }
+.page-sub { font-size: 1.08rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: -.5rem 0 1.5rem 0; }
+.chip { background: #FFFFFF; border: 1px solid var(--line); border-radius: 999px; padding: .28rem .85rem; font-size: .85rem; color: var(--ink);
+        box-shadow: 0 1px 2px rgba(20,40,29,.04); }
+.chip b { font-weight: 700; }
+
+/* hero */
+.hero { padding: 2.3rem 2.6rem; border-radius: 22px;
+        background: linear-gradient(135deg, #14281D 0%, #10231A 55%, #0C1B13 100%);
+        box-shadow: 0 30px 60px -30px rgba(12,27,19,.75), inset 0 1px 0 rgba(255,255,255,.06); }
+.hero-name { font-size: clamp(2.3rem, 5vw, 3.7rem); letter-spacing: -0.03em; }
+.hero-why { font-size: 1.02rem; }
+.hero-lead { display: inline-block; margin-top: 1rem; background: rgba(217,162,27,.14); color: #F0C45A; border: 1px solid rgba(217,162,27,.4);
+             border-radius: 999px; padding: .32rem .9rem; font-size: .88rem; }
+.fig b { font-size: 2.05rem; }
+.fig span { font-size: .88rem; }
+.hero-figs { gap: 1.4rem 2.8rem; }
+
+/* tabs as a segmented control */
+[data-baseweb="tab-list"] { background: #E4ECDD; border-radius: 999px; padding: 5px; gap: 4px; width: fit-content; border: none; }
+button[data-baseweb="tab"] { border-radius: 999px; padding: .5rem 1.4rem; background: transparent; color: var(--muted); }
+button[data-baseweb="tab"][aria-selected="true"] { background: #FFFFFF; color: var(--ink); box-shadow: 0 1px 3px rgba(20,40,29,.18); }
+[data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
+[data-testid="stTabs"] > div > div[role="tabpanel"], div[role="tabpanel"] { padding-top: 1.4rem; }
+
+/* section titles and cards */
+.sec { font-size: 1.45rem; letter-spacing: -0.015em; }
+.card, [data-testid="stPlotlyChart"], .stat { box-shadow: 0 2px 4px rgba(20,40,29,.05), 0 26px 44px -26px rgba(20,40,29,.32); }
+.rk-n { font-size: 1.3rem; }
+.rk-name { font-size: 1.02rem; }
+
+/* dark sidebar */
+[data-testid="stSidebar"] { background: #0F2218; border-right: none; }
+[data-testid="stSidebar"] label p, [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] p { color: #D6E4D6; }
+.brand { color: #FFFFFF; } .brand-sub { color: #9DB59F; }
+.sb-h { color: #FFFFFF; border-bottom: 1px solid #2A4634; }
+[data-testid="stSidebar"] [data-baseweb="input"] > div, [data-testid="stSidebar"] [data-baseweb="select"] > div, [data-testid="stSidebar"] [data-baseweb="base-input"] {
+  background: #17301F !important; border: 1px solid #2B4A38 !important; border-radius: 10px; }
+[data-testid="stSidebar"] input, [data-testid="stSidebar"] [data-baseweb="select"] div { color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF; }
+[data-testid="stSidebar"] [data-baseweb="input"]:focus-within > div, [data-testid="stSidebar"] [data-baseweb="select"]:focus-within > div { border-color: #D9A21B !important; }
+[data-testid="stSidebar"] button { color: #D6E4D6; }
+[data-testid="stSidebar"] [data-testid="stExpander"] { background: #14291D; border: 1px solid #2B4A38; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p { color: #FFFFFF; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary svg { color: #9DB59F; }
+[data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg, [data-testid="stSidebarCollapseButton"] svg { color: #9DB59F; }
+[data-testid="stSidebar"] [data-testid="stSliderThumbValue"], [data-testid="stSidebar"] [data-testid="stTickBarMin"], [data-testid="stSidebar"] [data-testid="stTickBarMax"] { color: #F0C45A; }
+[data-testid="stSidebar"] [data-baseweb="tag"] { background: #1F6F4A; }
+[data-testid="stSidebar"] [data-baseweb="tag"] span { color: #FFFFFF; }
+
+/* ---- selectors for the newer Streamlit widgets (react-aria) ---- */
+[role="tablist"] { background: #E4ECDD; border-radius: 999px; padding: 5px; gap: 4px; width: fit-content; border: none !important; box-shadow: none; }
+[data-testid="stTab"] { border-radius: 999px; padding: .5rem 1.4rem; background: transparent; color: var(--muted); cursor: pointer; transition: background .2s ease; }
+[data-testid="stTab"] p { color: inherit; font-weight: 500; font-size: 1rem; }
+[data-testid="stTab"][data-selected="true"] { background: #FFFFFF; color: var(--ink); box-shadow: 0 1px 3px rgba(20,40,29,.18); }
+[data-testid="stTab"][data-selected="true"] p { font-weight: 700; }
+[data-testid="stTab"] > div[data-rac] { display: none !important; }
+[data-testid="stTabs"] [data-orientation="horizontal"] { border-bottom: none !important; }
+[data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
+[data-testid="stSidebar"] [data-testid="stSelectbox"] [role="group"],
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] [role="group"],
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] > div > div {
+  background: #17301F !important; border: 1px solid #2B4A38 !important; border-radius: 10px !important; }
+[data-testid="stSidebar"] input { color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF; caret-color: #F0C45A; }
+[data-testid="stSidebar"] [data-testid="stNumberInputStepDown"], [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] { color: #D6E4D6; background: transparent; }
+[data-testid="stSidebar"] [data-testid="stSelectbox"] svg, [data-testid="stSidebar"] [data-testid="stMultiSelect"] svg { color: #9DB59F; fill: #9DB59F; }
+[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: #9DB59F; fill: #9DB59F; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary, [data-testid="stSidebar"] [data-testid="stExpander"] details > summary { color: #FFFFFF; background: transparent; }
+[data-testid="stSidebar"] [data-testid="stExpander"] details { border: none; }
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] div, [data-testid="stSidebar"] [data-testid="stSelectbox"] [role="group"] * { color: #FFFFFF; }
+@media (max-width: 640px) { .hero { padding: 1.4rem; } .fig b { font-size: 1.5rem; } }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -393,6 +470,11 @@ if df.empty:
     st.warning("Pick at least one goal in the sidebar to see results.")
     st.stop()
 
+prio = "CO₂ first" if w < 35 else ("profit first" if w > 65 else "balanced")
+st.markdown(f'<div class="chips"><span class="chip"><b>{feed}</b></span><span class="chip">{qty:,.0f} t per year</span>'
+            f'<span class="chip">{len(goals)} of 4 goals</span><span class="chip">Priority: {prio}</span></div>',
+            unsafe_allow_html=True)
+
 df["Score"] = (w / 100) * norm(df["Profit (Rs/t)"]) + (1 - w / 100) * norm(df["Net CO2 avoided (kg/t)"])
 df = df.sort_values("Score", ascending=False).reset_index(drop=True)
 df.insert(0, "Rank", range(1, len(df) + 1))
@@ -412,12 +494,25 @@ elif top_co2 == 0:
 else:
     why = "Best balance of profit and CO₂ at your priority."
 prod_label = best["Product"] if best["Product"] == "CBG" else best["Product"].lower()
+lead = ""
+if len(df) > 1:
+    run_up = df.iloc[1]
+    dp = best["Profit (Rs/t)"] - run_up["Profit (Rs/t)"]
+    dc = best["Net CO2 avoided (kg/t)"] - run_up["Net CO2 avoided (kg/t)"]
+    if dp > 0 and dc > 0:
+        lead = f"₹{dp:,.0f} more profit and {dc:,.0f} kg more CO₂ avoided per tonne than {run_up['Pathway']}"
+    elif dp > 0:
+        lead = f"₹{dp:,.0f} more profit per tonne than {run_up['Pathway']}"
+    elif dc > 0:
+        lead = f"{dc:,.0f} kg more CO₂ avoided per tonne than {run_up['Pathway']}"
+lead_html = f'<div class="hero-lead">{lead}</div>' if lead else ""
 st.markdown(f"""
 <div class="hero">
   <div>
     <div class="hero-k">Best route for your goals</div>
     <div class="hero-name">{best['Pathway']}</div>
     <div class="hero-why">{why}</div>
+    {lead_html}
   </div>
   <div class="hero-figs">
     <div class="fig gold"><b>{money(best['Total profit (Rs lakh/yr)'] * 1e5)}</b><span>profit per year</span></div>
