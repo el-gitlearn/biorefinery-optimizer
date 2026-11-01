@@ -224,10 +224,27 @@ button[data-baseweb="tab"][aria-selected="true"] { background: #FFFFFF; color: v
 [data-testid="stSidebar"] [data-testid="stExpander"] summary, [data-testid="stSidebar"] [data-testid="stExpander"] details > summary { color: #FFFFFF; background: transparent; }
 [data-testid="stSidebar"] [data-testid="stExpander"] details { border: none; }
 [data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] div, [data-testid="stSidebar"] [data-testid="stSelectbox"] [role="group"] * { color: #FFFFFF; }
+
+/* ---- sidebar arrow, checklist, touch ---- */
+[data-testid="stSidebarCollapseButton"] button, [data-testid="stSidebarCollapseButton"] span,
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] { color: #E9F2E4 !important; }
+[data-testid="stSidebarCollapseButton"] button:hover span { color: #F0C45A !important; }
+.chk-label { font-size: .875rem; font-weight: 400; color: #D6E4D6; margin: .7rem 0 .25rem 0; }
+[data-testid="stSidebar"] [data-testid="stCheckbox"] { margin-bottom: .1rem; }
+[data-testid="stSidebar"] [data-testid="stCheckbox"] label > div:first-of-type {
+  border: 1.5px solid #7B9A83; background: transparent; border-radius: 6px; }
+[data-testid="stSidebar"] [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type { background: #D9A21B; border-color: #D9A21B; }
+[data-testid="stSidebar"] [data-testid="stCheckbox"][data-selected="true"] label > div:first-of-type svg { stroke: #14281D; fill: none; }
+[data-testid="stSidebar"] [data-testid="stCheckbox"] p { color: #F1F6EE; font-size: .95rem; }
+[data-testid="stPlotlyChart"], [data-testid="stPlotlyChart"] * { touch-action: pan-y !important; }
+.js-plotly-plot .plotly .cursor-crosshair, .js-plotly-plot .plotly .nsewdrag { cursor: default !important; }
 @media (max-width: 640px) { .hero { padding: 1.4rem; } .fig b { font-size: 1.5rem; } }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+
+
+PLOT_CONFIG = {"displayModeBar": False, "scrollZoom": False, "doubleClick": False, "showTips": False}
 
 
 def style_fig(fig, height=360, margin=None):
@@ -238,6 +255,9 @@ def style_fig(fig, height=360, margin=None):
         hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=LINE, font_size=13, font_family="DM Sans, system-ui, sans-serif"),
         title_font=dict(family="Bricolage Grotesque, DM Sans, sans-serif", size=17, color=INK),
     )
+    fig.update_layout(dragmode=False)
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
     try:
         fig.update_layout(barcornerradius=6)
     except Exception:
@@ -413,7 +433,8 @@ with st.sidebar:
                                      "IOCL pays ₹1,800/t at the depot (ThePrint).")
     st.markdown('<div class="sb-h">Your goals</div>', unsafe_allow_html=True)
     goals_all = ["Heat / power", "Gaseous fuel", "Liquid fuel", "Soil / carbon storage"]
-    goals = st.multiselect("What do you want to produce?", goals_all, default=goals_all)
+    st.markdown('<div class="chk-label">What do you want to produce?</div>', unsafe_allow_html=True)
+    goals = [g for g in goals_all if st.checkbox(g, value=True, key=f"goal_{g}")]
     w = st.slider("Priority: CO₂ first ... profit first", 0, 100, 50,
                   help="0 = only CO₂ avoided matters, 100 = only profit matters")
     st.markdown('<div class="sb-h">Advanced</div>', unsafe_allow_html=True)
@@ -574,7 +595,7 @@ with tab1:
         fig.update_yaxes(side="right", row=1, col=1, tickfont=dict(size=13))   # route names sit in the gap between the panels
         fig.update_layout(bargap=0.38)
         style_fig(fig, height=max(300, 70 * len(d) + 90), margin=dict(l=10, r=40, t=50, b=10))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config=PLOT_CONFIG)
 
     st.markdown('<div class="sec">Where the money goes</div>'
                 '<div class="sec-sub">Pick a route to see how its sales turn into profit, per tonne of residue.</div>',
@@ -596,7 +617,7 @@ with tab1:
         hovertemplate="%{x}<br>₹%{y:,.0f}<extra></extra>"))
     wf.update_layout(showlegend=False, yaxis_title="₹ per tonne of residue")
     style_fig(wf, height=380, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(wf, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(wf, width="stretch", config=PLOT_CONFIG)
     st.markdown(f'<div class="note"><b>How it is calculated:</b> {r["Basis"]}</div>', unsafe_allow_html=True)
 
     with st.expander("See the full table"):
@@ -682,7 +703,7 @@ with tab2:
             fig3.update_layout(title="Trade-off curve", xaxis_title="Profit (₹ lakh per year)",
                                yaxis_title="CO₂ avoided (t per year)", legend=dict(orientation="h", y=-0.2))
             style_fig(fig3, height=380, margin=dict(l=10, r=10, t=50, b=10))
-            st.plotly_chart(fig3, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(fig3, width="stretch", config=PLOT_CONFIG)
 
         st.markdown(f"""
 <div class="stats">
@@ -714,7 +735,7 @@ with tab2:
         fb.update_layout(barmode="stack", showlegend=False, xaxis_title="Tonnes of residue per year", bargap=0.2)
         fb.update_yaxes(showticklabels=False)
         style_fig(fb, height=190, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fb, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fb, width="stretch", config=PLOT_CONFIG)
         st.dataframe(alloc, width="stretch", hide_index=True)
         st.download_button("Download this split (CSV)", alloc.to_csv(index=False), "residue_split.csv", "text/csv")
 
