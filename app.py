@@ -74,7 +74,7 @@ header[data-testid="stHeader"] { background: transparent; }
 .rk-row:last-child { border-bottom: none; }
 .rk-n { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; color: var(--muted); font-size: 1.1rem; }
 .rk-row.best .rk-n { color: var(--leaf); }
-.rk-name { font-weight: 700; display: flex; align-items: center; gap: .5rem; }
+.rk-name { font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .5rem; }
 .dot { width: .72rem; height: .72rem; border-radius: 50%; display: inline-block; flex: none; }
 .rk-goal { color: var(--muted); font-size: .82rem; font-weight: 400; margin-left: .2rem; }
 .rk-bar { height: 6px; background: #E2EAD9; border-radius: 4px; margin: .45rem 0 .35rem 0; overflow: hidden; }
@@ -104,6 +104,50 @@ button[data-baseweb="tab"][aria-selected="true"] { font-weight: 700; color: var(
 div[data-baseweb="radio"] label { font-weight: 500; }
 .note { color: var(--muted); font-size: .88rem; line-height: 1.5; }
 @media (max-width: 640px) { .hero { padding: 1.2rem; } .fig b { font-size: 1.35rem; } }
+/* ---- premium polish ---- */
+html { scroll-behavior: smooth; }
+.hero, .rk-row, .stat, .fig b, [data-testid="stMetricValue"] { font-variant-numeric: tabular-nums; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.hero { animation: rise .6s cubic-bezier(.2,.7,.2,1) both; box-shadow: 0 24px 48px -28px rgba(20,40,29,.6); }
+.hero-k::before { content: ""; display: inline-block; width: 22px; height: 3px; border-radius: 2px; background: var(--straw);
+                  margin-right: .6rem; vertical-align: middle; }
+.card { background: #FFFFFF; border: 1px solid var(--line); border-radius: 16px; padding: .3rem 1.3rem;
+        box-shadow: 0 1px 2px rgba(20,40,29,.04), 0 14px 30px -20px rgba(20,40,29,.25); }
+.rk-row { transition: background .2s ease; border-radius: 10px; padding-left: .5rem; padding-right: .5rem; animation: rise .5s ease both; }
+.rk-row:nth-child(2) { animation-delay: .05s; } .rk-row:nth-child(3) { animation-delay: .1s; }
+.rk-row:nth-child(4) { animation-delay: .15s; } .rk-row:nth-child(5) { animation-delay: .2s; }
+.rk-row:hover { background: #F4F8F0; }
+.pill { white-space: nowrap; display: inline-block; font-size: .72rem; font-weight: 500; color: var(--muted); border: 1px solid var(--line);
+        border-radius: 999px; padding: .04rem .55rem; margin-left: .4rem; background: #FFFFFF; }
+.pill.best { color: #FFFFFF; background: var(--leaf); border-color: var(--leaf); }
+.rk-bar { height: 7px; }
+[data-testid="stPlotlyChart"] { background: #FFFFFF; border: 1px solid var(--line); border-radius: 16px; padding: .6rem .6rem .2rem .6rem;
+        box-shadow: 0 1px 2px rgba(20,40,29,.04), 0 14px 30px -20px rgba(20,40,29,.25); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: .6rem 0 .8rem 0; }
+.stat { background: #FFFFFF; border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.2rem; animation: rise .5s ease both;
+        box-shadow: 0 1px 2px rgba(20,40,29,.04); }
+.stat b { display: block; font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.7rem; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.stat span { color: var(--muted); font-size: .85rem; }
+.stat.gold b { color: #9A6F00; } .stat.teal b { color: #0A6A73; }
+.brand-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .3rem; }
+.brand-row .brand { margin: 0; }
+.foot { color: var(--muted); font-size: .82rem; margin-top: 2.2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+/* route picker as pills */
+div[role="radiogroup"] { gap: .5rem; flex-wrap: wrap; }
+div[role="radiogroup"] label { background: #FFFFFF; border: 1px solid var(--line); border-radius: 999px; padding: .3rem 1rem; cursor: pointer;
+                               transition: border-color .15s ease, background .15s ease; }
+div[role="radiogroup"] label:hover { border-color: var(--leaf); }
+[data-testid="stRadioOption"] > div > div:first-child { display: none; }
+[data-testid="stRadioOption"][data-selected="true"] { background: var(--ink) !important; border-color: var(--ink) !important; }
+[data-testid="stRadioOption"][data-selected="true"] p { color: #FFFFFF !important; }
+/* inputs */
+[data-testid="stSidebar"] [data-baseweb="input"] > div, [data-testid="stSidebar"] [data-baseweb="select"] > div {
+  background: #FFFFFF; border: 1px solid var(--line); border-radius: 10px; }
+[data-testid="stSidebar"] [data-baseweb="input"]:focus-within > div, [data-testid="stSidebar"] [data-baseweb="select"]:focus-within > div {
+  border-color: var(--leaf); }
+[data-testid="stSidebar"] [data-testid="stExpander"] { background: #FFFFFF; }
+@media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -117,6 +161,10 @@ def style_fig(fig, height=360, margin=None):
         hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=LINE, font_size=13, font_family="DM Sans, system-ui, sans-serif"),
         title_font=dict(family="Bricolage Grotesque, DM Sans, sans-serif", size=17, color=INK),
     )
+    try:
+        fig.update_layout(barcornerradius=6)
+    except Exception:
+        pass
     fig.update_xaxes(gridcolor="#E7EDE2", zerolinecolor="#9DB09F", linecolor=LINE)
     fig.update_yaxes(gridcolor="#E7EDE2", zerolinecolor="#9DB09F", linecolor=LINE)
     return fig
@@ -273,7 +321,11 @@ def build_pathways(feed):
 # SIDEBAR  (inputs)
 # =====================================================================
 with st.sidebar:
-    st.markdown('<div class="brand">Biorefinery Pathway Optimizer</div>'
+    st.markdown('<div class="brand-row"><svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">'
+                '<rect width="32" height="32" rx="9" fill="#14281D"/>'
+                '<path d="M9 22c0-7 5-12 14-12 0 8-5 13-12 13-1 0-2-.3-2-1z" fill="#D9A21B"/>'
+                '<path d="M9.5 22.5c3-4 6-7 10-9.5" stroke="#14281D" stroke-width="1.6" stroke-linecap="round"/></svg>'
+                '<div class="brand">Biorefinery Pathway Optimizer</div></div>'
                 '<div class="brand-sub">Choose a residue and your goals. Results update as you change anything.</div>',
                 unsafe_allow_html=True)
     st.markdown('<div class="sb-h">Your residue</div>', unsafe_allow_html=True)
@@ -393,12 +445,12 @@ with tab1:
 <div class="rk-row {'best' if r['Rank'] == 1 else ''}">
   <div class="rk-n">{int(r['Rank'])}</div>
   <div>
-    <div class="rk-name"><span class="dot" style="background:{col}"></span>{r['Pathway']}<span class="rk-goal">{r['Goal']}</span></div>
+    <div class="rk-name"><span class="dot" style="background:{col}"></span>{r['Pathway']}{'<span class="pill best">Best fit</span>' if r['Rank'] == 1 else ''}<span class="pill">{r['Goal']}</span></div>
     <div class="rk-bar"><i style="width:{wbar}%;background:{col}"></i></div>
     <div class="rk-fig"><b>{money(r['Profit (Rs/t)'])}</b> profit per t &nbsp;·&nbsp; <b>{r['Net CO2 avoided (kg/t)']:,.0f} kg</b> CO<sub>2</sub> avoided per t</div>
   </div>
 </div>"""
-        st.markdown(f'<div class="rank">{rows_html}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card rank">{rows_html}</div>', unsafe_allow_html=True)
         if len(df) > 1:
             run = df.iloc[1]
             note = f"Runner-up: {run['Pathway']}."
@@ -537,10 +589,12 @@ with tab2:
             style_fig(fig3, height=380, margin=dict(l=10, r=10, t=50, b=10))
             st.plotly_chart(fig3, width="stretch", config={"displayModeBar": False})
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Profit per year", money(chosen["profit"]))
-        m2.metric("CO₂ avoided per year", f"{chosen['co2'] / 1000:,.0f} t")
-        m3.metric("Residue used", f"{sum(chosen['x']):,.0f} of {qty:,.0f} t")
+        st.markdown(f"""
+<div class="stats">
+  <div class="stat gold"><b>{money(chosen['profit'])}</b><span>profit per year</span></div>
+  <div class="stat teal"><b>{chosen['co2'] / 1000:,.0f} t</b><span>CO<sub>2</sub> avoided per year</span></div>
+  <div class="stat"><b>{sum(chosen['x']):,.0f} of {qty:,.0f} t</b><span>residue used</span></div>
+</div>""", unsafe_allow_html=True)
         if sum(chosen["x"]) < qty - 1:
             st.markdown(f'<div class="note">{qty - sum(chosen["x"]):,.0f} t of residue is left unprocessed: routes that lose money '
                         'are skipped unless they are needed to reach the CO₂ target, or the limit on each route is reached.</div>',
@@ -612,3 +666,6 @@ with st.expander("How each pathway was calculated"):
         st.markdown(f"**{r['Pathway']}.** {r['Basis']}")
     st.markdown("**Profit** = product sales - plant capital charge - operating cost - residue cost - transport charges (entered by you) - "
                 "your other expenses - tax. Tax is charged only on positive profit.")
+
+st.markdown('<div class="foot">Figures are estimates for comparing routes, built from published plant data and prices. '
+            'Check the sources above before using them for a decision.</div>', unsafe_allow_html=True)
