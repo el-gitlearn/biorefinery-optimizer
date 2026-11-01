@@ -238,6 +238,10 @@ button[data-baseweb="tab"][aria-selected="true"] { background: #FFFFFF; color: v
 [data-testid="stSidebar"] [data-testid="stCheckbox"] p { color: #F1F6EE; font-size: .95rem; }
 [data-testid="stPlotlyChart"], [data-testid="stPlotlyChart"] * { touch-action: pan-y !important; }
 .js-plotly-plot .plotly .cursor-crosshair, .js-plotly-plot .plotly .nsewdrag { cursor: default !important; }
+
+/* ---- let the page scroll when a finger starts on a chart ---- */
+[data-testid="stElementContainer"]:has([data-testid="stPlotlyChart"]) { overflow: visible !important; }
+[data-testid="stPlotlyChart"] { box-sizing: border-box; }
 @media (max-width: 640px) { .hero { padding: 1.4rem; } .fig b { font-size: 1.5rem; } }
 </style>
 """
@@ -255,7 +259,7 @@ def style_fig(fig, height=360, margin=None):
         hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=LINE, font_size=13, font_family="DM Sans, system-ui, sans-serif"),
         title_font=dict(family="Bricolage Grotesque, DM Sans, sans-serif", size=17, color=INK),
     )
-    fig.update_layout(dragmode=False)
+    fig.update_layout(dragmode="pan")
     fig.update_xaxes(fixedrange=True)
     fig.update_yaxes(fixedrange=True)
     try:
